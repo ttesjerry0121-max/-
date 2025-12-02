@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk Boxing: Strategic</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050510;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: "Microsoft JhengHei", "Heiti TC", sans-serif;
+            color: white;
+            user-select: none;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+        }
+        canvas {
+            background-color: #10101a;
+            border: 2px solid #0ff;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="900" height="600"></canvas>
+</div>
+
+<script>
+// --- 核心變數 ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// 配色
+const COLORS = {
+    BLUE: '#00FFFF',    // 玩家
+    RED: '#FF3250',     // 電腦
+    YELLOW: '#FFE600',  // 集氣
+    PURPLE: '#B400FF',  // 超級防守
+    GREEN: '#32FF32',   // 勝
+    WHITE: '#FFFFFF',
+    BLACK: '#000000',
+    GRAY: '#646464',
+    ORANGE: '#FFA500',
+    BG: '#0F0F19'
+};
+
+// 遊戲數值設定
+const MAX_HP = 100;
+const MAX_ENERGY = 8;
+
+// 傷害設定
+const DAMAGE = {
+    ATTACK: 10,
+    SKILL1: 20,
+    SKILL2: 35,
+    SKILL3: 60
+};
+
+// 全域特效
+let screenShake = 0;
+let particles = [];
+let floatingTexts = [];
+let mousePos = { x: 0, y: 0 };
+
+// 狀態機
+const STATE = {
+    INTRO: 0,
+    INPUT: 1,
+    ANIM: 2,
+    CPU: 3,
+    RESOLVE: 4,
+    GAMEOVER: 5
+};
+
+let currentState = STATE.INTRO;
+let timer = 0;
+let logMsg = "請選擇行動";
+let winnerText = "";
+let pAction = null;
+let cAction = null;
+
+// --- 類別定義 ---
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 15;
+        this.vy = (Math.random() - 0.5) * 15;
+        this.life = 30 + Math.random() * 20;
+        this.color = color;
+        this.size = 3 + Math.random() * 4;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+        this.size = Math.max(0, this.size - 0.1);
+    }
+    draw(ox, oy) {
+        if (this.life > 0) {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x + ox, this.y + oy, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
+
+class FloatingText {
+    constructor(text, x, y, color, scale = 1.0) {
+        this.text = text;
+        this.x = x;
+        this.y = y;
+        this.vy = -2;
+        this.life = 80;
+        this.color = color;
+        this.scale = scale;
+    }
+    update() {
+        this.y += this.vy;
+        this.vy *= 0.95;
+        this.life--;
+    }
+    draw(ox, oy) {
+        if (this.life > 0) {
+            ctx.globalAlpha = Math.min(1, this.life / 20);
+            ctx.font = `bold ${24 * this.scale}px "Microsoft JhengHei"`;
+            ctx.fillStyle = this.color;
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 3;
+            const tx = this.x + ox;
+            const ty = this.y + oy;
+            ctx.strokeText(this.text, tx, ty);
+            ctx.fillText(this.text, tx, ty);
+            ctx.globalAlpha = 1.0;
+        }
+    }
+}
+
+class Fighter {
+    constructor(isPlayer) {
+        this.isPlayer = isPlayer;
+        this.reset();
+    }
+    reset() {
+        this.hp = MAX_HP;
+        this.energy = 0;
+        this.state = "idle";
+        this.x = this.isPlayer ? 200 : 600;
+        this.y = 300;
+        this.shakeX = 0;
+        this.flashTimer = 0;
+    }
+    takeDamage(amount) {
+        this.hp -= amount;
+        this.flashTimer = 5;
+        this.shakeX = 20;
+        createParticles(this.x + 50, this.y + 50, this.isPlayer ? COLORS.RED : COLORS.BLUE);
+        createFloatingText(`-${amount}`, this.x + 50, this.y, COLORS.RED, amount > 20 ? 1.5 : 1.0);
+    }
+    draw(ox, oy) {
+        let drawX = this.x + (Math.random() - 0.5) * this.shakeX + ox;
+        let drawY = this.y + Math.sin(Date.now() / 300) * 5 + oy;
+        
+        let color = this.isPlayer ? COLORS.BLUE : COLORS.RED;
+        
+        // 狀態特效
+        const cx = drawX + 50;
+        const cy = drawY + 75;
+
+        if (this.state === "charging") {
+            ctx.strokeStyle = COLORS.YELLOW;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 80, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (this.state === "blocking") {
+            // 普通防守：藍色盾牌
+            ctx.fillStyle = COLORS.BLUE;
+            ctx.fillRect(drawX - 20, drawY, 20, 150); 
+            ctx.strokeStyle = COLORS.WHITE;
+            ctx.strokeRect(drawX - 20, drawY, 20, 150);
+        } else if (this.state === "super_blocking") {
+            // 超級防守：紫色圓盾
+            ctx.strokeStyle = COLORS.PURPLE;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 95, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = "rgba(180, 0, 255, 0.2)";
+            ctx.fill();
+        }
+
+        // 閃白 (受傷特效)
+        if (this.flashTimer > 0) {
+            color = COLORS.WHITE;
+            this.flashTimer--;
+        }
+
+        // 畫機器人主體
+        ctx.fillStyle = color + "99"; 
+        ctx.fillRect(drawX + 20, drawY + 30, 60, 80); // 身體
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(drawX + 20, drawY + 30, 60, 80);
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(drawX + 50, drawY + 20, 20, 0, Math.PI * 2); // 頭
+        ctx.fill();
+
+        // 眼睛
+        ctx.fillStyle = COLORS.WHITE;
+        ctx.beginPath();
+        let eyeX = this.isPlayer ? drawX + 60 : drawX + 40;
+        ctx.arc(eyeX, drawY + 20, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (this.shakeX > 0) this.shakeX *= 0.8;
+    }
+}
+
+class Button {
+    constructor(text, x, y, color, action, cost = 0) {
+        this.text = text;
+        this.rect = { x, y, w: 100, h: 50 };
+        this.color = color;
+        this.action = action;
+        this.cost = cost;
+    }
+    
+    draw(energy) {
+        const disabled = energy < this.cost;
+        const col = disabled ? COLORS.GRAY : this.color;
+        
+        // Hover
+        if (!disabled && this.isHover(mousePos)) {
+            ctx.fillStyle = "white";
+            ctx.fillRect(this.rect.x - 3, this.rect.y - 3, this.rect.w + 6, this.rect.h + 6);
+        }
+
+        ctx.fillStyle = col;
+        ctx.fillRect(this.rect.x, this.rect.y, this.rect.w, this.rect.h);
+        
+        ctx.strokeStyle = COLORS.WHITE;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.rect.x, this.rect.y, this.rect.w, this.rect.h);
+
+        ctx.fillStyle = disabled ? COLORS.WHITE : COLORS.BLACK;
+        ctx.font = "bold 18px 'Microsoft JhengHei'";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.text, this.rect.x + this.rect.w / 2, this.rect.y + this.rect.h / 2);
+
+        if (this.cost > 0) {
+            ctx.fillStyle = COLORS.WHITE;
+            ctx.font = "14px Arial";
+            ctx.fillText(`氣${this.cost}`, this.rect.x + this.rect.w - 20, this.rect.y + this.rect.h + 15);
+        }
+    }
+
+    isHover(pos) {
+        return pos.x >= this.rect.x && pos.x <= this.rect.x + this.rect.w &&
+               pos.y >= this.rect.y && pos.y <= this.rect.y + this.rect.h;
+    }
+
+    checkClick(pos, energy) {
+        return this.isHover(pos) && energy >= this.cost;
+    }
+}
+
+// --- 初始化 ---
+const player = new Fighter(true);
+const cpu = new Fighter(false);
+
+const btns = [
+    new Button("集氣", 40, 510, COLORS.YELLOW, "charge"),
+    new Button("防禦", 150, 510, COLORS.BLUE, "block"),
+    new Button("超級防守", 260, 510, COLORS.PURPLE, "s_block"),
+    new Button("普攻", 370, 510, COLORS.RED, "attack"),
+    new Button("技能1", 480, 510, COLORS.ORANGE, "skill1", 1),
+    new Button("技能2", 590, 510, '#FF6400', "skill2", 2),
+    new Button("技能3", 700, 510, '#FF0000', "skill3", 3),
+];
+
+// --- 輔助函式 ---
+function createParticles(x, y, color) {
+    for (let i = 0; i < 15; i++) {
+        particles.push(new Particle(x, y, color));
+    }
+}
+
+function createFloatingText(text, x, y, color, scale = 1.0) {
+    floatingTexts.push(new FloatingText(text, x, y, color, scale));
+}
+
+function drawGrid(ox, oy) {
+    ctx.strokeStyle = '#28003C';
+    ctx.lineWidth = 1;
+    for (let x = -100; x < canvas.width + 100; x += 50) {
+        ctx.beginPath();
+        ctx.moveTo(x + ox * 0.5, 400 + oy);
+        ctx.lineTo(x - 300 + (x / canvas.width) * 600 + ox, 600 + oy);
+        ctx.stroke();
+    }
+    ctx.strokeStyle = '#C800C8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 400 + oy);
+    ctx.lineTo(canvas.width, 400 + oy);
+    ctx.stroke();
+}
+
+function drawStatus(x, y, hp, maxHp, energy, color, name) {
+    ctx.fillStyle = color;
+    ctx.font = "bold 20px 'Microsoft JhengHei'";
+    ctx.textAlign = "left";
+    ctx.fillText(name, x, y - 10);
+
+    ctx.fillStyle = "#333";
+    ctx.fillRect(x, y, 220, 25);
+    
+    if (hp > 0) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 220 * (hp / maxHp), 25);
+    }
+    
+    ctx.strokeStyle = COLORS.WHITE;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, 220, 25);
+    
+    ctx.fillStyle = COLORS.WHITE;
+    ctx.font = "16px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(`${Math.floor(hp)}/${maxHp}`, x + 110, y + 18);
+
+    for (let i = 0; i < MAX_ENERGY; i++) {
+        ctx.fillStyle = i < energy ? COLORS.YELLOW : "#444";
+        ctx.beginPath();
+        ctx.arc(x + 15 + i * 27, y + 45, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = COLORS.BLACK;
+        ctx.stroke();
+    }
+}
+
+// --- 主迴圈 ---
+function gameLoop() {
+    ctx.fillStyle = COLORS.BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let ox = 0, oy = 0;
+    if (screenShake > 0) {
+        ox = (Math.random() - 0.5) * screenShake * 2;
+        oy = (Math.random() - 0.5) * screenShake * 2;
+        screenShake = Math.max(0, screenShake - 1);
+    }
+
+    drawGrid(ox, oy);
+
+    // 邏輯
+    if (currentState === STATE.ANIM) {
+        timer++;
+        if (timer > 20) {
+            currentState = STATE.CPU;
+            timer = 0;
+            // 只有防守動作會保持姿勢
+            if (!["block", "s_block", "charge"].includes(pAction)) {
+                player.state = "idle";
+            }
+        }
+    } else if (currentState === STATE.CPU) {
+        // AI 邏輯
+        let opts = ["attack", "block"];
+        if (cpu.energy >= 1) opts.push("skill1");
+        if (cpu.energy >= 2) opts.push("skill2");
+        if (cpu.energy >= 3) opts.push("skill3");
+        if (cpu.energy === 0) opts.push("charge");
+        
+        // 稍微聰明一點的隨機
+        // 1. 如果玩家沒能量且沒強防，電腦高機率攻擊
+        // 2. 如果玩家能量高，電腦會考慮防守或超級防守
+        if (player.energy >= 3 && Math.random() < 0.3) {
+            cAction = "s_block"; // 猜玩家放大招
+        } else if (cpu.energy >= 3 && Math.random() < 0.7) {
+            cAction = "skill3";
+        } else {
+            cAction = opts[Math.floor(Math.random() * opts.length)];
+        }
+
+        cpu.state = cAction === "charge" ? "charging" : cAction;
+        if (cAction.includes("skill") || cAction === "attack") cpu.state = "attacking";
+
+        // 扣氣
+        let cost = 0;
+        if (cAction === "skill1") cost = 1;
+        if (cAction === "skill2") cost = 2;
+        if (cAction === "skill3") cost = 3;
+        cpu.energy = Math.max(0, cpu.energy - cost);
+
+        // --- 結算玩家攻擊 ---
+        let dmg = 0;
+        // 判斷玩家使用的是哪種攻擊
+        if (["attack", "skill1", "skill2", "skill3"].includes(pAction)) {
+            let base = 0;
+            if (pAction === "attack") base = DAMAGE.ATTACK;
+            if (pAction === "skill1") base = DAMAGE.SKILL1;
+            if (pAction === "skill2") base = DAMAGE.SKILL2;
+            if (pAction === "skill3") base = DAMAGE.SKILL3;
+
+            let blocked = false;
+
+            if (pAction === "skill3") {
+                // 技能 3：只能被「超級防守」擋下
+                if (cpu.state === "super_blocking") blocked = true;
+                // 注意：普通防守 (block) 擋不住技能 3
+            } else {
+                // 普攻、技能 1、技能 2：只能被「普通防守」擋下
+                if (cpu.state === "blocking") blocked = true;
+                // 注意：超級防守 (super_blocking) 擋不住這些
+            }
+
+            if (!blocked) {
+                // 如果 CPU 正在集氣，受到傷害 (被打斷)
+                // 傷害生效
+                cpu.takeDamage(base);
+                screenShake = base > 20 ? 15 : 5;
+            } else {
+                // 被格擋
+                let blockMsg = (cpu.state === "super_blocking") ? "完美防禦!" : "格擋!";
+                createFloatingText(blockMsg, cpu.x + 50, cpu.y, COLORS.BLUE);
+            }
+        }
+
+        currentState = STATE.RESOLVE;
+        timer = 0;
+
+    } else if (currentState === STATE.RESOLVE) {
+        timer++;
+        if (timer === 30) {
+            // --- 結算 CPU 攻擊 ---
+             if (["attack", "skill1", "skill2", "skill3"].includes(cAction)) {
+                let base = 0;
+                if (cAction === "attack") base = DAMAGE.ATTACK;
+                if (cAction === "skill1") base = DAMAGE.SKILL1;
+                if (cAction === "skill2") base = DAMAGE.SKILL2;
+                if (cAction === "skill3") base = DAMAGE.SKILL3;
+
+                let blocked = false;
+
+                if (cAction === "skill3") {
+                    // 電腦放大招：玩家必須「超級防守」
+                    if (player.state === "super_blocking") blocked = true;
+                } else {
+                    // 電腦放小招：玩家必須「普通防守」
+                    if (player.state === "blocking") blocked = true;
+                }
+
+                if (!blocked) {
+                    player.takeDamage(base);
+                    screenShake = base > 20 ? 15 : 5;
+                    // 如果玩家在集氣被打斷，要不要扣能量？目前的規則是「被打斷」= 沒加到氣
+                } else {
+                    let blockMsg = (player.state === "super_blocking") ? "完美防禦!" : "格擋!";
+                    createFloatingText(blockMsg, player.x + 50, player.y, COLORS.BLUE);
+                }
+            }
+
+            // 回氣結算 (只有沒被打死才能回)
+            if (pAction === "charge" && player.hp > 0) {
+                // 集氣會被任何攻擊打斷嗎？
+                // 規則：蓄力只有技能攻擊時會被打斷 (Implies: attack also interrupts?)
+                // 通常邏輯：如果被打中(扣血)，集氣就失敗。如果沒被打中，集氣成功。
+                // 檢查這回合有沒有受傷
+                // 這裡簡化邏輯：如果當前血量 < 回合開始血量 (難以追蹤)，或者簡單判定：
+                // 如果 CPU 有攻擊且玩家沒擋住，則集氣失敗。
+                let interrupted = false;
+                if (["attack", "skill1", "skill2", "skill3"].includes(cAction)) {
+                    // 只要 CPU 攻擊了，且因為玩家在集氣(沒防禦)，肯定被打中
+                    interrupted = true; 
+                    createFloatingText("被打斷!", player.x + 50, player.y - 40, COLORS.GRAY);
+                }
+                
+                if (!interrupted) {
+                    player.energy = Math.min(MAX_ENERGY, player.energy + 1);
+                    createFloatingText("+1氣", player.x + 50, player.y - 40, COLORS.YELLOW);
+                }
+            }
+
+            if (cAction === "charge" && cpu.hp > 0) {
+                let interrupted = false;
+                if (["attack", "skill1", "skill2", "skill3"].includes(pAction)) {
+                    interrupted = true;
+                    createFloatingText("被打斷!", cpu.x + 50, cpu.y - 40, COLORS.GRAY);
+                }
+                if (!interrupted) {
+                    cpu.energy = Math.min(MAX_ENERGY, cpu.energy + 1);
+                    createFloatingText("+1氣", cpu.x + 50, cpu.y - 40, COLORS.YELLOW);
+                }
+            }
+        }
+
+        if (timer > 60) {
+            player.state = "idle";
+            cpu.state = "idle";
+            currentState = STATE.INPUT;
+            logMsg = "下一回合";
+
+            if (player.hp <= 0 || cpu.hp <= 0) {
+                currentState = STATE.GAMEOVER;
+                if (player.hp > 0) winnerText = "玩家獲勝!";
+                else if (cpu.hp > 0) winnerText = "電腦獲勝!";
+                else winnerText = "平手!";
+            }
+        }
+    }
+
+    // 繪製
+    // UI 背景
+    ctx.fillStyle = "#14141E";
+    ctx.fillRect(0, 490, 900, 110);
+    ctx.strokeStyle = COLORS.BLUE;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 490);
+    ctx.lineTo(900, 490);
+    ctx.stroke();
+
+    player.draw(ox, oy);
+    cpu.draw(ox, oy);
+
+    particles.forEach((p, index) => {
+        p.update();
+        p.draw(ox, oy);
+        if (p.life <= 0) particles.splice(index, 1);
+    });
+
+    floatingTexts.forEach((t, index) => {
+        t.update();
+        t.draw(ox, oy);
+        if (t.life <= 0) floatingTexts.splice(index, 1);
+    });
+
+    drawStatus(20, 40, player.hp, MAX_HP, player.energy, COLORS.BLUE, "玩家");
+    drawStatus(660, 40, cpu.hp, MAX_HP, cpu.energy, COLORS.RED, "電腦");
+
+    ctx.fillStyle = COLORS.WHITE;
+    ctx.font = "bold 24px 'Microsoft JhengHei'";
+    ctx.textAlign = "center";
+    ctx.fillText(logMsg, canvas.width / 2, 80);
+
+    // 狀態畫面
+    if (currentState === STATE.INTRO) {
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = COLORS.BLUE;
+        ctx.font = "bold 60px 'Microsoft JhengHei'";
+        ctx.fillText("Cyberpunk Boxing", canvas.width / 2, 80);
+
+        ctx.fillStyle = COLORS.WHITE;
+        ctx.font = "20px 'Microsoft JhengHei'";
+        ctx.textAlign = "left"; // 改為靠左對齊方便閱讀
+        let startX = 300;
+        let startY = 160;
+        let rules = [
+            "【規則說明】",
+            "1. 普攻、技能1、技能2：",
+            "   ➜ 只能被 [防禦] 擋下 (超級防守擋不住！)",
+            "",
+            "2. 技能3 (大招)：",
+            "   ➜ 只能被 [超級防守] 擋下 (普通防守擋不住！)",
+            "",
+            "3. 集氣：",
+            "   ➜ 被任何攻擊打中都會被打斷 (無法回氣)",
+            "",
+            "4. 勝利條件：對手 HP 歸零"
+        ];
+        rules.forEach((r, i) => ctx.fillText(r, startX, startY + i * 30));
+
+        ctx.fillStyle = COLORS.YELLOW;
+        let btnRect = {x: 350, y: 500, w: 200, h: 60};
+        ctx.fillRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+        ctx.fillStyle = COLORS.BLACK;
+        ctx.textAlign = "center";
+        ctx.font = "bold 24px 'Microsoft JhengHei'";
+        ctx.fillText("開始戰鬥", btnRect.x + btnRect.w/2, btnRect.y + btnRect.h/2 + 8);
+
+    } else if (currentState === STATE.GAMEOVER) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = winnerText.includes("玩家") ? COLORS.GREEN : COLORS.RED;
+        ctx.font = "bold 60px 'Microsoft JhengHei'";
+        ctx.fillText(winnerText, canvas.width / 2, 200);
+
+        ctx.fillStyle = COLORS.YELLOW;
+        let btnRect = {x: 350, y: 400, w: 200, h: 60};
+        ctx.fillRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+        ctx.fillStyle = COLORS.BLACK;
+        ctx.font = "24px 'Microsoft JhengHei'";
+        ctx.fillText("重新開始", btnRect.x + btnRect.w/2, btnRect.y + btnRect.h/2 + 8);
+
+    } else if (currentState === STATE.INPUT) {
+        btns.forEach(btn => btn.draw(player.energy));
+    } else {
+        ctx.fillStyle = COLORS.GRAY;
+        ctx.font = "24px 'Microsoft JhengHei'";
+        ctx.textAlign = "center";
+        ctx.fillText("回合結算中...", canvas.width / 2, 530);
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// --- 事件 ---
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+    };
+});
+
+canvas.addEventListener('mousedown', e => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    if (currentState === STATE.INTRO) {
+        if (clickX > 350 && clickX < 550 && clickY > 500 && clickY < 560) {
+            currentState = STATE.INPUT;
+            player.reset();
+            cpu.reset();
+            logMsg = "戰鬥開始！";
+        }
+    } else if (currentState === STATE.GAMEOVER) {
+        if (clickX > 350 && clickX < 550 && clickY > 400 && clickY < 460) {
+            currentState = STATE.INPUT;
+            player.reset();
+            cpu.reset();
+            logMsg = "新回合開始";
+        }
+    } else if (currentState === STATE.INPUT) {
+        for (let btn of btns) {
+            if (btn.checkClick(mousePos, player.energy)) {
+                pAction = btn.action;
+                player.energy -= btn.cost;
+                player.state = pAction === "charge" ? "charging" : pAction;
+                if (pAction.includes("skill") || pAction === "attack") player.state = "attacking";
+                
+                logMsg = `你使用了 [${btn.text}]`;
+                currentState = STATE.ANIM;
+                timer = 0;
+                break;
+            }
+        }
+    }
+});
+
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
