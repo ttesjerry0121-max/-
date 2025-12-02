@@ -6,24 +6,16 @@ import random
 import math
 
 # ==========================================
-# 錯誤處理與字型設定
+# 錯誤處理工具
 # ==========================================
 def show_error_box(title, message):
-    print(f"[{title}] {message}")
+    """ 強制跳出 Windows 錯誤視窗，非 Windows 系統則印在終端機 """
+    print(f"[{title}] {message}")  # 先印在終端機確保看得到
     try:
+        # 0x10 是圖示為叉叉
         ctypes.windll.user32.MessageBoxW(0, message, title, 0x10)
     except:
         pass
-
-# 嘗試尋找可用的中文字型
-def get_chinese_font(size):
-    font_names = ["microsoftjhenghei", "simhei", "mingliu", "arial"]
-    for name in font_names:
-        try:
-            return pygame.font.SysFont(name, size, bold=True)
-        except:
-            continue
-    return pygame.font.SysFont(None, size)
 
 # ==========================================
 # 遊戲主程式
@@ -34,499 +26,300 @@ def main():
     pygame.init()
     SCREEN_WIDTH = 900
     SCREEN_HEIGHT = 600
+    
+    # [修復 1] 建立視窗 (原本漏了這行，導致 screen 變數不存在)
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Cyberpunk Boxing: Neon Strike")
+    
+    pygame.display.set_caption("Cyberpunk Boxing (Fixed)")
     clock = pygame.time.Clock()
     FPS = 60
 
-    # 字型初始化
-    font_ui = get_chinese_font(20)
-    font_log = get_chinese_font(24)
-    font_big = get_chinese_font(60)
-    font_dmg = get_chinese_font(40) # 傷害數字用
-
     # --- 2. 顏色與常數 ---
+    # 霓虹配色
     NEON_BLUE = (0, 255, 255)
     NEON_RED = (255, 50, 80)
     NEON_YELLOW = (255, 230, 0)
     NEON_PURPLE = (180, 0, 255)
-    NEON_GREEN = (50, 255, 50)
+    # [修復 2] 補上漏掉的綠色定義
+    NEON_GREEN = (50, 255, 50) 
+    
     WHITE = (255, 255, 255)
     BLACK = (0, 0, 0)
     GRAY = (100, 100, 100)
-    ORANGE = (255, 165, 0)
 
+    # 數值
     MAX_HP = 100
     MAX_ENERGY = 8
 
-    # 全域特效變數
-    screen_shake = 0
-    particles = []
-    floating_texts = []
+    # --- 3. 繪圖函式 ---
+    def create_glow_circle(color, radius):
+        surf = pygame.Surface((radius*2 + 20, radius*2 + 20), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*color, 50), (radius+10, radius+10), radius+8)
+        pygame.draw.circle(surf, color, (radius+10, radius+10), radius)
+        return surf
 
-    # --- 3. 類別定義 ---
+    def create_robot(color, is_player):
+        surf = pygame.Surface((100, 150), pygame.SRCALPHA)
+        rect = pygame.Rect(20, 30, 60, 80)
+        # 身體
+        pygame.draw.rect(surf, (*color, 150), rect, border_radius=10)
+        pygame.draw.rect(surf, color, rect, 3, border_radius=10)
+        # 頭
+        pygame.draw.circle(surf, color, (50, 20), 15)
+        # 眼睛
+        eye_color = WHITE
+        pygame.draw.circle(surf, eye_color, (45 if is_player else 55, 20), 3)
+        return surf
 
-    class Particle:
-        """ 打擊粒子特效 """
-        def __init__(self, x, y, color):
-            self.x = x
-            self.y = y
-            self.vx = random.uniform(-8, 8)
-            self.vy = random.uniform(-8, 8)
-            self.life = random.randint(20, 40)
-            self.color = color
-            self.size = random.randint(3, 6)
+    # 預先生成素材
+    bg_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    bg_surf.fill((10, 10, 20))
+    # 畫網格背景
+    for x in range(0, SCREEN_WIDTH, 50):
+        # 模擬透視線
+        start_pos = (x, 400)
+        end_pos = (x - 300 + (x/SCREEN_WIDTH)*600, 600)
+        pygame.draw.line(bg_surf, (50, 0, 100), start_pos, end_pos, 1)
+    # 地平線
+    pygame.draw.line(bg_surf, (255, 0, 255), (0, 400), (900, 400), 2)
 
-        def update(self):
-            self.x += self.vx
-            self.y += self.vy
-            self.life -= 1
-            self.size = max(0, self.size - 0.1)
+    robot_p = create_robot(NEON_BLUE, True)
+    robot_c = create_robot(NEON_RED, False)
+    # CPU 機器人水平翻轉
+    robot_c = pygame.transform.flip(robot_c, True, False)
 
-        def draw(self, surf, offset_x, offset_y):
-            if self.life > 0:
-                pygame.draw.circle(surf, self.color, (int(self.x + offset_x), int(self.y + offset_y)), int(self.size))
-
-    class FloatingText:
-        """ 飄動的傷害數字 """
-        def __init__(self, text, x, y, color, size_scale=1.0):
-            self.text = str(text)
-            self.x = x
-            self.y = y
-            self.vy = -3 # 往上飄
-            self.life = 60
-            self.color = color
-            self.font = pygame.font.SysFont("microsoftjhenghei", int(40 * size_scale), bold=True)
-            self.alpha = 255
-
-        def update(self):
-            self.y += self.vy
-            self.vy *= 0.95 # 阻力
-            self.life -= 1
-            if self.life < 20:
-                self.alpha = int((self.life / 20) * 255)
-
-        def draw(self, surf, offset_x, offset_y):
-            if self.life > 0:
-                txt_surf = self.font.render(self.text, True, self.color)
-                txt_surf.set_alpha(self.alpha)
-                # 加個黑色描邊讓數字更明顯
-                outline_surf = self.font.render(self.text, True, BLACK)
-                outline_surf.set_alpha(self.alpha)
-                
-                draw_pos = (self.x + offset_x - txt_surf.get_width()//2, self.y + offset_y)
-                
-                # 畫描邊
-                for dx, dy in [(-2,0), (2,0), (0,-2), (0,2)]:
-                    surf.blit(outline_surf, (draw_pos[0]+dx, draw_pos[1]+dy))
-                # 畫本體
-                surf.blit(txt_surf, draw_pos)
-
+    # --- 4. 遊戲物件 ---
     class Fighter:
         def __init__(self, is_player):
-            self.is_player = is_player
-            self.reset()
-            
-        def reset(self):
             self.hp = MAX_HP
             self.energy = 0
             self.state = "idle"
-            self.x = 200 if self.is_player else 600
-            self.y = 300
-            self.shake_x = 0
-            self.flash_timer = 0 # 受擊閃白
+            self.x = 200 if is_player else 600
+            self.y = 300 # 調整高度讓機器人站在網格上
+            self.is_player = is_player
+            self.shake = 0
 
-        def take_damage(self, amount):
-            self.hp -= amount
-            self.flash_timer = 5 # 閃白 5 frames
-            self.shake_x = 20
-            # 產生特效
-            create_particles(self.x + 50, self.y + 50, NEON_RED if self.is_player else NEON_BLUE)
-            create_floating_text(f"-{amount}", self.x + 50, self.y, NEON_RED, 1.5 if amount > 20 else 1.0)
-            return amount
-
-        def draw(self, surface, global_offset_x, global_offset_y):
-            # 自身的震動 + 全局震動
-            off_x = random.randint(-int(self.shake_x), int(self.shake_x)) + global_offset_x
-            off_y = math.sin(pygame.time.get_ticks()/300) * 5 + global_offset_y
+        def draw(self, surface):
+            off_x = random.randint(-self.shake, self.shake)
+            off_y = math.sin(pygame.time.get_ticks()/300) * 5
             
-            # 繪製本體 (簡單機器人)
-            rect = pygame.Rect(self.x + off_x, self.y + off_y, 100, 150)
-            color = NEON_BLUE if self.is_player else NEON_RED
-            
-            # 狀態視覺特效
-            cx, cy = rect.centerx, rect.centery
+            # 狀態特效
+            cx, cy = self.x + 50, self.y + 50
             if self.state == "charging":
-                pygame.draw.circle(surface, NEON_YELLOW, (cx, cy), 80, 2)
+                pygame.draw.circle(surface, NEON_YELLOW, (cx, cy), 60 + off_y, 2)
             elif self.state == "blocking":
-                pygame.draw.rect(surface, NEON_BLUE, (rect.x-10, rect.y, 10, 150))
+                pygame.draw.arc(surface, NEON_BLUE, (self.x, self.y, 100, 120), 0, 3.14, 5)
             elif self.state == "super_blocking":
-                pygame.draw.circle(surface, NEON_PURPLE, (cx, cy), 90, 4)
+                pygame.draw.circle(surface, NEON_PURPLE, (cx, cy), 70, 3)
 
-            # 閃白效果
-            if self.flash_timer > 0:
-                draw_color = WHITE
-                self.flash_timer -= 1
-            else:
-                draw_color = color
-
-            # 畫機器人
-            pygame.draw.rect(surface, (*draw_color, 150), (rect.x+20, rect.y+30, 60, 80), border_radius=10) # 身體
-            pygame.draw.circle(surface, draw_color, (rect.x+50, rect.y+20), 20) # 頭
-            
-            # 衰減震動
-            if self.shake_x > 0: self.shake_x *= 0.8
+            img = robot_p if self.is_player else robot_c
+            surface.blit(img, (self.x + off_x, self.y + off_y))
+            if self.shake > 0:
+                self.shake -= 1
 
     class Button:
         def __init__(self, text, x, y, color, action, cost=0):
-            self.rect = pygame.Rect(x, y, 100, 50) # 加大按鈕
+            self.rect = pygame.Rect(x, y, 100, 40)
             self.text = text
             self.color = color
             self.action = action
             self.cost = cost
+            self.font = pygame.font.SysFont('arial', 20, bold=True)
 
         def draw(self, surf, energy):
             disabled = energy < self.cost
             col = GRAY if disabled else self.color
             
-            # 光暈效果
-            if not disabled and self.rect.collidepoint(pygame.mouse.get_pos()):
-                pygame.draw.rect(surf, (255, 255, 255), self.rect.inflate(6, 6), border_radius=8)
-
+            # 按鈕本體
             pygame.draw.rect(surf, col, self.rect, border_radius=5)
             pygame.draw.rect(surf, WHITE, self.rect, 2, border_radius=5)
             
-            txt = font_ui.render(self.text, True, BLACK if not disabled else WHITE)
+            # 文字
+            txt = self.font.render(self.text, True, BLACK if not disabled else WHITE)
             surf.blit(txt, (self.rect.centerx - txt.get_width()//2, self.rect.centery - txt.get_height()//2))
-
-            # 顯示耗能
-            if self.cost > 0:
-                cost_txt = font_ui.render(f"氣{self.cost}", True, WHITE)
-                surf.blit(cost_txt, (self.rect.right - 30, self.rect.bottom - 20))
 
         def is_clicked(self, pos, energy):
             return self.rect.collidepoint(pos) and energy >= self.cost
 
-    # --- 4. 輔助函式 ---
-    def create_particles(x, y, color):
-        for _ in range(15):
-            particles.append(Particle(x, y, color))
-
-    def create_floating_text(text, x, y, color, scale=1.0):
-        floating_texts.append(FloatingText(text, x, y, color, scale))
-
-    def draw_bg(surface, off_x, off_y):
-        surface.fill((15, 15, 25))
-        # 網格
-        for x in range(-100, SCREEN_WIDTH + 100, 50):
-            # 簡單透視線
-            start = (x + off_x * 0.5, 400 + off_y)
-            end = (x - 300 + (x/SCREEN_WIDTH)*600 + off_x, 600 + off_y)
-            pygame.draw.line(surface, (40, 0, 60), start, end, 1)
-        pygame.draw.line(surface, (200, 0, 200), (0, 400+off_y), (900, 400+off_y), 3)
-
-    # --- 5. 初始化變數 ---
+    # 初始化物件
     player = Fighter(True)
     cpu = Fighter(False)
-
+    
     btns = [
-        Button("集氣", 40, 510, NEON_YELLOW, "charge"),
-        Button("防禦", 150, 510, NEON_BLUE, "block"),
-        Button("強防", 260, 510, NEON_PURPLE, "s_block"),
-        Button("攻擊", 370, 510, NEON_RED, "attack"),
-        Button("快攻", 480, 510, ORANGE, "skill1", 1),
-        Button("重擊", 590, 510, (255, 100, 0), "skill2", 2),
-        Button("終結技", 700, 510, (255, 0, 0), "skill3", 3),
+        Button("Charge", 50, 500, NEON_YELLOW, "charge"),
+        Button("Block", 160, 500, NEON_BLUE, "block"),
+        Button("Super", 270, 500, NEON_PURPLE, "s_block"),
+        Button("Attack", 380, 500, NEON_RED, "attack"),
+        Button("Skill 1", 490, 500, (255,140,0), "skill1", 1),
+        Button("Skill 2", 600, 500, (255,100,0), "skill2", 2),
+        Button("Ult", 710, 500, (255,0,0), "skill3", 3),
     ]
 
-    # 狀態機
-    STATE_INTRO = 0
-    STATE_INPUT = 1
-    STATE_ANIM = 2
-    STATE_CPU = 3
-    STATE_RESOLVE = 4
-    STATE_GAMEOVER = 5
-    
-    current_state = STATE_INTRO
-    
+    # --- 5. 遊戲迴圈 ---
+    running = True
+    game_state = "INPUT" # INPUT, ANIM, CPU, RESOLVE
     timer = 0
     p_act = None
     c_act = None
-    log_msg = "請選擇行動"
-    winner = ""
+    log_msg = "Ready - Click Button"
+    font_log = pygame.font.SysFont('arial', 30, bold=True)
 
-    # --- 6. 遊戲迴圈 ---
-    running = True
     while running:
-        # 1. 邏輯更新 (特效與震動)
-        if screen_shake > 0:
-            shake_offset_x = random.randint(-screen_shake, screen_shake)
-            shake_offset_y = random.randint(-screen_shake, screen_shake)
-            screen_shake = max(0, screen_shake - 2) # 震動衰減
-        else:
-            shake_offset_x = 0
-            shake_offset_y = 0
-
-        # 更新粒子
-        for p in particles[:]:
-            p.update()
-            if p.life <= 0: particles.remove(p)
-        
-        # 更新文字
-        for ft in floating_texts[:]:
-            ft.update()
-            if ft.life <= 0: floating_texts.remove(ft)
-
-        # 2. 事件處理
+        # 事件
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if current_state == STATE_INTRO:
-                    # 點擊開始
-                    if 350 < event.pos[0] < 550 and 400 < event.pos[1] < 460:
-                        current_state = STATE_INPUT
-                        player.reset()
-                        cpu.reset()
-                        particles.clear()
-                        floating_texts.clear()
-                        log_msg = "戰鬥開始！請下指令"
+            if game_state == "INPUT" and event.type == pygame.MOUSEBUTTONDOWN:
+                for btn in btns:
+                    if btn.is_clicked(event.pos, player.energy):
+                        p_act = btn.action
+                        player.state = "charging" if p_act == "charge" else p_act
+                        if "skill" in p_act or p_act == "attack": player.state = "attacking"
+                        player.energy -= btn.cost
+                        game_state = "ANIM"
+                        timer = 0
+                        log_msg = f"Player used {p_act}!"
 
-                elif current_state == STATE_GAMEOVER:
-                    # 點擊重新開始
-                    if 350 < event.pos[0] < 550 and 400 < event.pos[1] < 460:
-                        current_state = STATE_INPUT
-                        player.reset()
-                        cpu.reset()
-                        particles.clear()
-                        floating_texts.clear()
-                        log_msg = "新回合開始"
-
-                elif current_state == STATE_INPUT:
-                    # 戰鬥輸入
-                    for btn in btns:
-                        if btn.is_clicked(event.pos, player.energy):
-                            p_act = btn.action
-                            player.state = "charging" if p_act == "charge" else p_act
-                            if "skill" in p_act or p_act == "attack": player.state = "attacking"
-                            player.energy -= btn.cost
-                            current_state = STATE_ANIM
-                            timer = 0
-                            
-                            action_name = btn.text
-                            log_msg = f"你使用了 [{action_name}]"
-
-        # 3. 遊戲狀態邏輯
-        if current_state == STATE_ANIM:
+        # 邏輯
+        if game_state == "ANIM":
             timer += 1
-            if timer > 15: # 動畫時間
-                current_state = STATE_CPU
+            if timer > 20:
+                game_state = "CPU"
+                # 重置玩家防禦姿態顯示，除非這回合就是防禦
+                if p_act not in ["block", "s_block", "charge"]:
+                     player.state = "idle"
+                else:
+                     player.state = p_act # 保持防禦姿勢
                 timer = 0
-                if p_act not in ["block", "s_block", "charge"]: player.state = "idle"
-                else: player.state = p_act
-
-        elif current_state == STATE_CPU:
-            # AI 決策
+        
+        elif game_state == "CPU":
+            # 簡易 AI
             opts = ["attack", "block"]
             if cpu.energy >= 1: opts.append("skill1")
             if cpu.energy >= 3: opts.append("skill3")
             if cpu.energy == 0: opts.append("charge")
             
-            # AI 策略：有氣就兇
-            if cpu.energy >= 3 and random.random() < 0.6: c_act = "skill3"
-            elif cpu.energy >= 1 and random.random() < 0.4: c_act = "skill1"
-            else: c_act = random.choice(opts)
-
+            # 簡單策略：能量高時傾向攻擊
+            if cpu.energy > 4 and random.random() > 0.3:
+                c_act = "skill3" if cpu.energy >=3 else "skill2"
+            else:
+                c_act = random.choice(opts)
+            
             cpu.state = "charging" if c_act == "charge" else c_act
             if "skill" in c_act or c_act == "attack": cpu.state = "attacking"
             
-            # 扣氣
             cost = 0
             if c_act == "skill1": cost = 1
             elif c_act == "skill2": cost = 2
             elif c_act == "skill3": cost = 3
             cpu.energy = max(0, cpu.energy - cost)
-
-            # --- 結算玩家攻擊 ---
-            dmg = 0
+            
+            log_msg = f"CPU used {c_act}!"
+            
+            # --- 玩家攻擊結算 ---
+            p_dmg = 0
             if p_act in ["attack", "skill1", "skill2", "skill3"]:
-                base = 8
-                if p_act == "skill1": base = 15
+                base = 5
+                if p_act == "skill1": base = 12
                 if p_act == "skill2": base = 25
-                if p_act == "skill3": base = 45
+                if p_act == "skill3": base = 40
                 
                 blocked = False
                 if cpu.state == "super_blocking": blocked = True
                 elif cpu.state == "blocking" and p_act != "skill3": blocked = True
                 
                 if not blocked:
-                    dmg = base
-                    cpu.take_damage(dmg)
-                    screen_shake = 10 if base < 20 else 25 # 大震動
+                    cpu.hp -= base
+                    cpu.shake = 10
+                    log_msg += f" CPU Hit! -{base}"
                 else:
-                    create_floating_text("格擋!", cpu.x+50, cpu.y, NEON_BLUE)
+                    log_msg += " CPU Blocked!"
             
-            current_state = STATE_RESOLVE
+            game_state = "RESOLVE"
             timer = 0
 
-        elif current_state == STATE_RESOLVE:
+        elif game_state == "RESOLVE":
             timer += 1
-            if timer == 20: # 延遲一下再結算 CPU 攻擊
-                # --- 結算 CPU 攻擊 ---
+            if timer > 40: # 稍微停久一點看結果
+                # --- CPU 攻擊結算 ---
                 if c_act in ["attack", "skill1", "skill2", "skill3"]:
-                    base = 8
-                    if c_act == "skill1": base = 15
+                    base = 5
+                    if c_act == "skill1": base = 12
                     if c_act == "skill2": base = 25
-                    if c_act == "skill3": base = 45
+                    if c_act == "skill3": base = 40
                     
                     blocked = False
                     if player.state == "super_blocking": blocked = True
-                    elif player.state == "blocking" and c_act != "skill3": blocked = True
+                    elif player.state == "blocking" and c_act != "skill3": blocked = True # 大招不能普防
                     
                     if not blocked:
-                        player.take_damage(base)
-                        screen_shake = 10 if base < 20 else 25
-                    else:
-                        create_floating_text("格擋!", player.x+50, player.y, NEON_BLUE)
+                        player.hp -= base
+                        player.shake = 10
+                    
+                # 能量回復
+                if p_act == "charge": player.energy = min(MAX_ENERGY, player.energy + 1)
+                if c_act == "charge": cpu.energy = min(MAX_ENERGY, cpu.energy + 1)
 
-                # 回氣
-                if p_act == "charge": 
-                    player.energy = min(MAX_ENERGY, player.energy + 1)
-                    create_floating_text("+1氣", player.x+50, player.y-40, NEON_YELLOW)
-                if c_act == "charge": 
-                    cpu.energy = min(MAX_ENERGY, cpu.energy + 1)
-                    create_floating_text("+1氣", cpu.x+50, cpu.y-40, NEON_YELLOW)
-
-            if timer > 50:
                 player.state = "idle"
                 cpu.state = "idle"
-                current_state = STATE_INPUT
-                log_msg = "下一回合"
+                game_state = "INPUT"
                 
+                # 遊戲結束判定
                 if player.hp <= 0 or cpu.hp <= 0:
-                    current_state = STATE_GAMEOVER
-                    if player.hp > 0: winner = "玩家獲勝!"
-                    elif cpu.hp > 0: winner = "電腦獲勝!"
-                    else: winner = "平手!"
+                    running = False
+                    final_msg = "Draw"
+                    if player.hp > 0: final_msg = "You Win!"
+                    if cpu.hp > 0: final_msg = "You Lose!"
+                    show_error_box("Game Over", f"{final_msg}\nPlayer: {player.hp}, CPU: {cpu.hp}")
 
-        # 4. 畫面繪製
-        # 繪製背景 (套用震動偏移)
-        draw_bg(screen, shake_offset_x, shake_offset_y)
+        # 繪圖
+        screen.blit(bg_surf, (0,0))
+        
+        # UI 背景區
+        pygame.draw.rect(screen, (20,20,30), (0, 480, 900, 120))
+        pygame.draw.line(screen, NEON_BLUE, (0, 480), (900, 480), 2)
 
-        if current_state == STATE_INTRO:
-            # 規則畫面
-            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-            overlay.set_alpha(200)
-            overlay.fill(BLACK)
-            screen.blit(overlay, (0,0))
+        player.draw(screen)
+        cpu.draw(screen)
+
+        for btn in btns:
+            btn.draw(screen, player.energy)
             
-            title = font_big.render("Cyberpunk Boxing", True, NEON_BLUE)
-            screen.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 100))
+        # 血條繪製函式
+        def draw_bar(x, y, val, max_val, col):
+            # 邊框與底色
+            pygame.draw.rect(screen, (50,50,50), (x, y, 200, 25), border_radius=5)
+            pygame.draw.rect(screen, WHITE, (x, y, 200, 25), 2, border_radius=5)
+            # 血條
+            if val > 0:
+                pygame.draw.rect(screen, col, (x+2, y+2, 196*(val/max_val), 21), border_radius=4)
             
-            rules = [
-                "規則說明:",
-                "1. [攻擊] 克制 [集氣]",
-                "2. [防禦] 可擋一般攻擊，擋不住 [大招]",
-                "3. [強防] 可擋所有攻擊，但不回氣",
-                "4. 能量越高，可使用越強的技能",
-                "5. 先將對方 HP 歸零者獲勝"
-            ]
-            for i, line in enumerate(rules):
-                txt = font_log.render(line, True, WHITE)
-                screen.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 220 + i*40))
-                
-            # 開始按鈕
-            btn_rect = pygame.Rect(350, 480, 200, 60)
-            pygame.draw.rect(screen, NEON_YELLOW, btn_rect, border_radius=10)
-            btn_txt = font_ui.render("開始戰鬥", True, BLACK)
-            screen.blit(btn_txt, (btn_rect.centerx - btn_txt.get_width()//2, btn_rect.centery - btn_txt.get_height()//2))
+            # 能量點
+            eng = player.energy if x < 400 else cpu.energy
+            start_x = x
+            start_y = y + 35
+            for i in range(MAX_ENERGY):
+                c = NEON_YELLOW if i < eng else (40,40,40)
+                pygame.draw.circle(screen, c, (start_x + 10 + i*24, start_y), 8)
+                pygame.draw.circle(screen, BLACK, (start_x + 10 + i*24, start_y), 8, 1)
 
-        elif current_state == STATE_GAMEOVER:
-            # 結束畫面
-            # 先畫遊戲場景當背景
-            player.draw(screen, shake_offset_x, shake_offset_y)
-            cpu.draw(screen, shake_offset_x, shake_offset_y)
-            
-            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-            overlay.set_alpha(180)
-            overlay.fill(BLACK)
-            screen.blit(overlay, (0,0))
-            
-            res_txt = font_big.render(winner, True, NEON_GREEN if "玩家" in winner else NEON_RED)
-            screen.blit(res_txt, (SCREEN_WIDTH//2 - res_txt.get_width()//2, 200))
-            
-            # 重新開始按鈕
-            btn_rect = pygame.Rect(350, 400, 200, 60)
-            pygame.draw.rect(screen, NEON_YELLOW, btn_rect, border_radius=10)
-            btn_txt = font_ui.render("重新開始", True, BLACK)
-            screen.blit(btn_txt, (btn_rect.centerx - btn_txt.get_width()//2, btn_rect.centery - btn_txt.get_height()//2))
-
-        else:
-            # 戰鬥畫面
-            # UI 背景
-            pygame.draw.rect(screen, (20, 20, 30), (0, 490, 900, 110))
-            pygame.draw.line(screen, NEON_BLUE, (0, 490), (900, 490), 2)
-
-            # 角色
-            player.draw(screen, shake_offset_x, shake_offset_y)
-            cpu.draw(screen, shake_offset_x, shake_offset_y)
-
-            # 特效 (粒子 & 浮動文字)
-            for p in particles:
-                p.draw(screen, shake_offset_x, shake_offset_y)
-            for ft in floating_texts:
-                ft.draw(screen, shake_offset_x, shake_offset_y)
-
-            # UI 按鈕
-            if current_state == STATE_INPUT:
-                for btn in btns:
-                    btn.draw(screen, player.energy)
-            else:
-                # 非輸入狀態，顯示等待文字
-                wait_txt = font_log.render("回合結算中...", True, GRAY)
-                screen.blit(wait_txt, (SCREEN_WIDTH//2 - wait_txt.get_width()//2, 530))
-
-            # 血條與資訊函式 (局部)
-            def draw_status_bar(x, y, hp, max_hp, energy, color, name):
-                # 名字
-                name_txt = font_ui.render(name, True, color)
-                screen.blit(name_txt, (x, y - 25))
-                # 血條底
-                pygame.draw.rect(screen, (40, 40, 40), (x, y, 220, 25), border_radius=5)
-                # 血量
-                if hp > 0:
-                    width = 220 * (hp / max_hp)
-                    pygame.draw.rect(screen, color, (x, y, width, 25), border_radius=5)
-                # 邊框
-                pygame.draw.rect(screen, WHITE, (x, y, 220, 25), 2, border_radius=5)
-                # 血量文字
-                hp_txt = font_ui.render(f"{hp}/{max_hp}", True, WHITE)
-                screen.blit(hp_txt, (x + 110 - hp_txt.get_width()//2, y + 2))
-                
-                # 能量球
-                for i in range(MAX_ENERGY):
-                    c = NEON_YELLOW if i < energy else (60, 60, 60)
-                    cx = x + 15 + i * 27
-                    cy = y + 40
-                    pygame.draw.circle(screen, c, (cx, cy), 8)
-                    pygame.draw.circle(screen, BLACK, (cx, cy), 8, 1)
-
-            draw_status_bar(20, 40, max(0, player.hp), MAX_HP, player.energy, NEON_BLUE, "玩家 (Player)")
-            draw_status_bar(660, 40, max(0, cpu.hp), MAX_HP, cpu.energy, NEON_RED, "電腦 (CPU)")
-
-            # 中央訊息 Log
-            msg_surf = font_log.render(log_msg, True, WHITE)
-            screen.blit(msg_surf, (SCREEN_WIDTH//2 - msg_surf.get_width()//2, 80))
+        draw_bar(20, 20, max(0, player.hp), 100, NEON_GREEN) # 這裡原本會報錯
+        draw_bar(680, 20, max(0, cpu.hp), 100, NEON_RED)
+        
+        # 顯示 Log
+        msg = font_log.render(log_msg, True, WHITE)
+        screen.blit(msg, (450 - msg.get_width()//2, 80))
 
         pygame.display.flip()
         clock.tick(FPS)
 
-# --- 啟動 ---
+# --- 啟動保護 ---
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        show_error_box("錯誤", traceback.format_exc())
+        error_msg = traceback.format_exc()
+        show_error_box("遊戲執行期間發生錯誤", f"{e}\n\n{error_msg}")
     finally:
         pygame.quit()
