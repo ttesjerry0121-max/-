@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>極限蓄力拳擊 (AI 全面進化版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #1a1a2e;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+        canvas {
+            background: linear-gradient(to bottom, #16213e, #0f3460);
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border-radius: 8px;
+        }
+        .btn-group {
+            display: grid;
+            gap: 8px;
+            padding: 10px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .action-btn {
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            user-select: none;
+            border: 2px solid rgba(255,255,255,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .action-btn:active { transform: scale(0.95); }
+        .action-btn:disabled { 
+            opacity: 0.3; 
+            cursor: not-allowed; 
+            transform: none; 
+            filter: grayscale(100%);
+        }
+
+        .btn-charge { background: #f1c40f; color: #000; }
+        .btn-def { background: #3498db; color: white; }
+        .btn-sdef { background: #8e44ad; color: white; border: 2px solid #f39c12; }
+        .btn-atk { background: #e74c3c; color: white; }
+        .btn-sk1 { background: #d35400; color: white; }
+        .btn-sk2 { background: #c0392b; color: white; }
+        .btn-sk3 { background: #2c3e50; color: #e74c3c; border: 2px solid #e74c3c; }
+        
+        .btn-restart {
+            background: #27ae60;
+            color: white;
+            margin-top: 5px;
+            border: 2px solid #2ecc71;
+            font-size: 1rem;
+            box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4);
+            display: none; 
+        }
+        .btn-restart.show { display: block; animation: popIn 0.3s ease-out; }
+
+        .btn-ai { 
+            background: linear-gradient(45deg, #2196F3, #9C27B0); 
+            color: white; 
+            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 0 10px rgba(156, 39, 176, 0.5);
+        }
+        .btn-rival {
+            background: linear-gradient(45deg, #FF5722, #FF9800);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 0 10px rgba(255, 87, 34, 0.5);
+        }
+
+        /* Commentator Box */
+        #commentary-box {
+            background: linear-gradient(90deg, #000000cc, #1a1a2ecc);
+            border-left: 4px solid #f1c40f;
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            min-height: 50px;
+            font-style: italic;
+            color: #f1c40f;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        #battle-log {
+            height: 60px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 0.85rem;
+            font-family: monospace;
+            border: 1px solid #333;
+            margin-bottom: 5px;
+        }
+        .log-turn { color: #aaa; border-bottom: 1px solid #333; margin-top: 4px; padding-top: 4px; }
+        .log-p { color: #64b5f6; } 
+        .log-e { color: #e57373; } 
+        .log-dmg { color: #ffeb3b; font-weight: bold; }
+        .log-info { color: #81c784; }
+        .log-ai { color: #E1BEE7; font-style: italic; }
+
+        #turn-indicator {
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 5px;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+
+        /* Taunt Bubble */
+        .taunt-bubble {
+            position: absolute;
+            background: white;
+            color: black;
+            padding: 10px;
+            border-radius: 15px;
+            font-weight: bold;
+            font-size: 14px;
+            max-width: 200px;
+            top: 150px;
+            right: 50px;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 10;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .taunt-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 20px;
+            border-width: 10px 10px 0;
+            border-style: solid;
+            border-color: white transparent;
+            display: block;
+            width: 0;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 5px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col justify-center items-center relative">
+
+    <div id="game-ui" class="w-full flex flex-col items-center max-w-2xl px-2 relative">
+        
+        <!-- Taunt Bubble -->
+        <div id="cpu-taunt" class="taunt-bubble">放馬過來！</div>
+
+        <div id="turn-indicator" class="text-white">準備開始</div>
+        
+        <!-- AI Tools Area -->
+        <div class="w-full flex gap-2 mb-2">
+            <button id="btn-coach" class="action-btn btn-ai flex-1 text-center py-2 text-sm flex justify-center items-center" onclick="askCoach()">
+                <span>✨ 戰術分析</span>
+            </button>
+            <button id="btn-rival" class="action-btn btn-rival flex-1 text-center py-2 text-sm flex justify-center items-center" onclick="generateRival()">
+                <span>🦹 生成新對手</span>
+            </button>
+        </div>
+
+        <!-- Canvas -->
+        <canvas id="gameCanvas" width="800" height="400" class="w-full h-auto mb-2"></canvas>
+
+        <!-- Commentary Box -->
+        <div id="commentary-box" class="w-full">
+            <span class="mr-2">🎙️</span>
+            <span id="commentary-text">比賽即將開始，觀眾屏息以待...</span>
+        </div>
+
+        <!-- Battle Log -->
+        <div id="battle-log" class="w-full"></div>
+
+        <!-- Controls -->
+        <div class="btn-group w-full">
+            <div class="grid grid-cols-3 gap-2">
+                <button class="action-btn btn-charge" id="btn-charge" onclick="startTurn('charge')">⚡ 蓄力</button>
+                <button class="action-btn btn-def" id="btn-def" onclick="startTurn('block')">🛡️ 防守</button>
+                <button class="action-btn btn-sdef" id="btn-sdef" onclick="startTurn('superBlock')">🔰 超級防守</button>
+            </div>
+            <div class="grid grid-cols-4 gap-2">
+                <button class="action-btn btn-atk" id="btn-atk" onclick="startTurn('attack')">👊 普攻</button>
+                <button class="action-btn btn-sk1" id="btn-sk1" onclick="startTurn('skill1')">① 刺拳</button>
+                <button class="action-btn btn-sk2" id="btn-sk2" onclick="startTurn('skill2')">② 勾拳</button>
+                <button class="action-btn btn-sk3" id="btn-sk3" onclick="startTurn('skill3')">③ 必殺</button>
+            </div>
+            
+            <!-- RESTART BUTTON -->
+            <button class="action-btn btn-restart" id="btn-restart" onclick="resetGame()">🔄 重新開始遊戲</button>
+        </div>
+    </div>
+
+<script>
+/**
+ * GEMINI API SETUP
+ */
+const apiKey = ""; 
+
+async function callGemini(promptText, isJson = false) {
+    if (!apiKey) {
+        console.warn("API Key missing");
+        return null;
+    }
+    
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    
+    // Add simple JSON structure hint if JSON is requested
+    const finalPrompt = isJson 
+        ? promptText + "\n請以純 JSON 格式回傳，不要包含 markdown 標記 (```json)。" 
+        : promptText;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: finalPrompt }] }]
+            })
+        });
+
+        if (!response.ok) throw new Error('API Error');
+        const data = await response.json();
+        let text = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+        
+        // Clean up markdown code blocks if Gemini adds them
+        if (text && isJson) {
+            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        }
+        return text;
+    } catch (error) {
+        console.error("Gemini Error:", error);
+        return null;
+    }
+}
+
+/**
+ * Game Config
+ */
+const CONFIG = {
+    MAX_HP: 100,
+    MAX_ENERGY: 3,
+    DMG_BASIC: 5,
+    DMG_S1: 12,
+    DMG_S2: 25,
+    DMG_S3: 40,
+    COST_S1: 1,
+    COST_S2: 2,
+    COST_S3: 3
+};
+
+/**
+ * State Management
+ */
+let gameState = {
+    turn: 1,
+    phase: 'player_input', 
+    player: {
+        hp: CONFIG.MAX_HP, energy: 0, action: null, status: 'idle', 
+    },
+    cpu: {
+        hp: CONFIG.MAX_HP, energy: 0, action: null, status: 'idle',
+    },
+    cpuIdentity: {
+        name: "訓練機器人",
+        personality: "標準",
+        desc: "一個普通的拳擊訓練對手。"
+    },
+    lastEventDescription: "遊戲剛開始。"
+};
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const logEl = document.getElementById('battle-log');
+const turnEl = document.getElementById('turn-indicator');
+const tauntEl = document.getElementById('cpu-taunt');
+const coachBtn = document.getElementById('btn-coach');
+const rivalBtn = document.getElementById('btn-rival');
+const commTextEl = document.getElementById('commentary-text');
+const restartBtn = document.getElementById('btn-restart');
+
+// Floating text array
+let floatingTexts = [];
+
+/**
+ * AI Features Implementation
+ */
+
+// 1. Coach
+async function askCoach() {
+    if (gameState.phase !== 'player_input') return;
+    
+    const originalText = coachBtn.innerHTML;
+    coachBtn.innerHTML = `<span class="spinner"></span> 分析...`;
+    coachBtn.disabled = true;
+
+    const p = gameState.player;
+    const c = gameState.cpu;
+    
+    const prompt = `
+        你是一個拳擊教練。戰況：
+        我：HP ${p.hp}, 能量 ${p.energy}/3。
+        對手(${gameState.cpuIdentity.name})：HP ${c.hp}, 能量 ${c.energy}/3。
+        對手風格：${gameState.cpuIdentity.desc}。
+        請給一個非常簡短的繁體中文戰術建議(20字內)。
+    `;
+
+    const advice = await callGemini(prompt);
+    
+    if (advice) {
+        log(`🤖 教練: ${advice}`, "log-ai");
+    } else {
+        log(`🤖 教練: 專心看對手動作！`, "log-ai");
+    }
+
+    coachBtn.innerHTML = originalText;
+    coachBtn.disabled = false;
+}
+
+// 2. Generate Rival
+async function generateRival() {
+    if (gameState.phase !== 'player_input') return;
+
+    const originalText = rivalBtn.innerHTML;
+    rivalBtn.innerHTML = `<span class="spinner"></span> 生成中...`;
+    rivalBtn.disabled = true;
+
+    const prompt = `
+        請創造一個獨特的拳擊手對手。
+        回傳 JSON 格式：
+        {
+            "name": "中文名字(譬如：暴怒泰森)",
+            "personality": "性格描述(譬如：傲慢)",
+            "desc": "簡短的一句背景介紹(譬如：來自地下的黑拳王者)"
+        }
+    `;
+
+    const text = await callGemini(prompt, true);
+    if (text) {
+        try {
+            const data = JSON.parse(text);
+            gameState.cpuIdentity = data;
+            log(`--- 新挑戰者登場 ---`, "log-turn");
+            log(`對手：${data.name}`, "log-ai");
+            log(`特徵：${data.desc}`, "log-ai");
+            commTextEl.innerText = `觀眾沸騰了！新的挑戰者 ${data.name} 踏上了擂台！`;
+            showTaunt(`我是${data.name}，準備受死吧！`);
+            
+            // Visual feedback - full heal for fair fight if generating mid-game? 
+            // Or just name change. Let's just change identity.
+            updateUI();
+        } catch (e) {
+            console.error("JSON parse error", e);
+        }
+    }
+
+    rivalBtn.innerHTML = originalText;
+    rivalBtn.disabled = false;
+}
+
+// 3. Dynamic Taunt (Updated with Persona)
+async function generateTaunt() {
+    const p = gameState.player;
+    const c = gameState.cpu;
+    const id = gameState.cpuIdentity;
+    const event = gameState.lastEventDescription;
+
+    const prompt = `
+        扮演一個拳擊手：${id.name}。
+        性格：${id.personality}。
+        背景：${id.desc}。
+        目前戰況：我方HP ${c.hp}, 對方HP ${p.hp}。
+        剛剛發生的事：${event}。
+        請根據你的性格講一句簡短的嘲諷或抱怨(繁體中文，15字內)。
+    `;
+
+    const taunt = await callGemini(prompt);
+    if (taunt) {
+        showTaunt(taunt);
+    }
+}
+
+// 4. Live Commentary
+async function generateCommentary(eventDescription) {
+    const id = gameState.cpuIdentity;
+    const prompt = `
+        你是一個熱血的體育主播。
+        正在轉播這場拳擊賽：玩家 vs ${id.name}。
+        剛剛的回合發生了：${eventDescription}。
+        請用一句話(繁體中文，30字內)激動地描述這個畫面。
+    `;
+    
+    // Don't await strictly to not block UI too long, update when ready
+    callGemini(prompt).then(text => {
+        if(text) {
+            commTextEl.innerText = text;
+            commTextEl.style.animation = 'none';
+            commTextEl.offsetHeight; /* trigger reflow */
+            commTextEl.style.animation = 'popIn 0.3s ease-out';
+        }
+    });
+}
+
+function showTaunt(text) {
+    tauntEl.innerText = text;
+    tauntEl.style.opacity = 1;
+    setTimeout(() => {
+        tauntEl.style.opacity = 0;
+    }, 4000);
+}
+
+/**
+ * Core Game Logic
+ */
+
+function resetGame() {
+    gameState.turn = 1;
+    gameState.phase = 'player_input';
+    gameState.player = { hp: CONFIG.MAX_HP, energy: 0, status: 'idle', action: null };
+    gameState.cpu = { hp: CONFIG.MAX_HP, energy: 0, status: 'idle', action: null };
+    gameState.lastEventDescription = "遊戲重新開始。";
+    
+    // Keep the generated rival identity!
+    
+    logEl.innerHTML = '';
+    log("=== 遊戲重新開始 ===", "log-turn");
+    commTextEl.innerText = "比賽重新開始！雙方回到角落準備。";
+    floatingTexts = [];
+    tauntEl.style.opacity = 0;
+    turnEl.innerText = "你的回合";
+    
+    restartBtn.classList.remove('show');
+    coachBtn.disabled = false;
+    rivalBtn.disabled = false;
+    
+    updateUI();
+}
+
+async function startTurn(playerActionType) {
+    if (gameState.phase !== 'player_input') return;
+
+    let cost = 0;
+    if (playerActionType === 'skill1') cost = 1;
+    if (playerActionType === 'skill2') cost = 2;
+    if (playerActionType === 'skill3') cost = 3;
+
+    if (gameState.player.energy < cost) {
+        log("能量不足！無法使用此技能。", "log-info");
+        return;
+    }
+
+    // 1. Setup Player Action
+    gameState.phase = 'animating';
+    gameState.player.energy -= cost;
+    gameState.player.action = playerActionType;
+    coachBtn.disabled = true;
+    rivalBtn.disabled = true;
+    
+    if (playerActionType === 'block') gameState.player.status = 'blocking';
+    else if (playerActionType === 'superBlock') gameState.player.status = 'superBlocking';
+    else if (playerActionType === 'charge') gameState.player.status = 'charging';
+    else gameState.player.status = 'idle';
+
+    updateUI(); 
+    turnEl.innerText = "玩家行動中...";
+    
+    // 2. CPU Decide
+    const cpuActionType = decideCPUAction();
+    gameState.cpu.action = cpuActionType;
+    let cpuCost = 0;
+    if (cpuActionType === 'skill1') cpuCost = 1;
+    if (cpuActionType === 'skill2') cpuCost = 2;
+    if (cpuActionType === 'skill3') cpuCost = 3;
+    gameState.cpu.energy -= cpuCost;
+
+    if (cpuActionType === 'block') gameState.cpu.status = 'blocking';
+    else if (cpuActionType === 'superBlock') gameState.cpu.status = 'superBlocking';
+    else if (cpuActionType === 'charge') gameState.cpu.status = 'charging';
+    else gameState.cpu.status = 'idle';
+
+    // 3. Resolve
+    log(`--- 第 ${gameState.turn} 回合 ---`, "log-turn");
+    const pResult = await performAction(true, gameState.player.action, gameState.cpu);
+    if (checkGameOver()) return;
+
+    turnEl.innerText = `${gameState.cpuIdentity.name} 行動中...`;
+    await new Promise(r => setTimeout(r, 800));
+    const cResult = await performAction(false, gameState.cpu.action, gameState.player);
+    if (checkGameOver()) return;
+
+    // 4. End Turn
+    resolveEndTurn(true, gameState.player);
+    resolveEndTurn(false, gameState.cpu);
+
+    const eventDesc = `玩家使用${getActionName(gameState.player.action)}造成${pResult}，${gameState.cpuIdentity.name}使用${getActionName(gameState.cpu.action)}造成${cResult}`;
+    gameState.lastEventDescription = eventDesc;
+    
+    // Trigger Commentary & Taunt
+    generateCommentary(eventDesc);
+    
+    if (Math.random() < 0.6 || cResult.includes("傷害") || pResult.includes("傷害")) {
+        generateTaunt();
+    }
+
+    // 5. Next Turn
+    gameState.turn++;
+    gameState.phase = 'player_input';
+    turnEl.innerText = "你的回合";
+    updateUI();
+    coachBtn.disabled = false;
+    rivalBtn.disabled = false;
+}
+
+function getActionName(act) {
+    const map = {
+        'charge': '蓄力', 'block': '防守', 'superBlock': '超級防守', 'attack': '普攻',
+        'skill1': '刺拳', 'skill2': '勾拳', 'skill3': '必殺技'
+    };
+    return map[act] || act;
+}
+
+function decideCPUAction() {
+    const p = gameState.player;
+    const c = gameState.cpu;
+    const rand = Math.random();
+
+    if (p.status === 'charging' && c.energy >= 1) {
+        if (c.energy >= 3 && rand < 0.8) return 'skill3'; 
+        if (c.energy >= 2 && rand < 0.6) return 'skill2';
+        return 'skill1';
+    }
+    if (c.energy === 3) {
+        if (p.status === 'superBlocking') return 'charge'; 
+        if (rand < 0.7) return 'skill3';
+        return 'attack';
+    }
+    if (c.energy === 0) {
+        if (rand < 0.4) return 'charge';
+        if (rand < 0.8) return 'attack';
+        return 'block';
+    }
+    if (c.energy >= 1) {
+        if (p.hp < 20) return 'skill1'; 
+        if (rand < 0.3) return 'charge';
+        if (rand < 0.6) return 'skill1';
+        return 'block';
+    }
+    return 'attack';
+}
+
+async function performAction(isPlayer, actionType, target) {
+    const actor = isPlayer ? gameState.player : gameState.cpu;
+    const name = isPlayer ? "玩家" : gameState.cpuIdentity.name;
+    const targetName = isPlayer ? gameState.cpuIdentity.name : "玩家";
+    const cssClass = isPlayer ? "log-p" : "log-e";
+
+    actor.animState = 'attacking'; 
+    if (['block','superBlock','charge'].includes(actionType)) actor.animState = actionType;
+    
+    let actionText = "";
+    let damage = 0;
+    let isSkill = false;
+    let isUlt = false;
+
+    switch(actionType) {
+        case 'charge': actionText = "開始蓄力..."; break;
+        case 'block': actionText = "舉起防守"; break;
+        case 'superBlock': actionText = "開啟超級防守"; break;
+        case 'attack': actionText = "擊出刺拳"; damage = CONFIG.DMG_BASIC; break;
+        case 'skill1': actionText = "使出 [技能1: 連擊]"; damage = CONFIG.DMG_S1; isSkill = true; break;
+        case 'skill2': actionText = "使出 [技能2: 重勾拳]"; damage = CONFIG.DMG_S2; isSkill = true; break;
+        case 'skill3': actionText = "使出 [技能3: 必殺上勾拳]"; damage = CONFIG.DMG_S3; isSkill = true; isUlt = true; break;
+    }
+
+    log(`${name} ${actionText}`, cssClass);
+    await new Promise(r => setTimeout(r, 500)); 
+
+    let resultString = "無效果";
+
+    if (damage > 0) {
+        let finalDmg = damage;
+        let blocked = false;
+        let blockMsg = "";
+
+        if (target.status === 'superBlocking') {
+            finalDmg = 0;
+            blocked = true;
+            blockMsg = "完美防禦！";
+        } else if (target.status === 'blocking') {
+            if (isUlt) blockMsg = "防守被貫穿！"; 
+            else {
+                finalDmg = 0;
+                blocked = true;
+                blockMsg = "格擋成功！";
+            }
+        }
+
+        if (blocked) {
+            log(`...被 ${targetName} ${blockMsg}`, "log-info");
+            addFloatingText(target, blockMsg, "#3498db");
+            resultString = "被格擋";
+        } else {
+            target.hp = Math.max(0, target.hp - finalDmg);
+            log(`...造成 ${finalDmg} 傷害!`, "log-dmg");
+            addFloatingText(target, `-${finalDmg}`, "#e74c3c");
+            target.animState = 'hit'; 
+            resultString = `${finalDmg}傷害`;
+            
+            if (target.status === 'charging') {
+                if (isSkill) {
+                    target.status = 'idle'; 
+                    log(`!!! ${targetName} 的蓄力被打斷了！`, "log-dmg");
+                    addFloatingText(target, "打斷!", "#ff0000");
+                    resultString += "(打斷蓄力)";
+                } else {
+                    log(`...${targetName} 硬扛下攻擊繼續蓄力`, "log-info");
+                    addFloatingText(target, "硬扛", "#aaaaaa");
+                }
+            }
+        }
+    } else {
+        resultString = "";
+    }
+    
+    setTimeout(() => {
+        actor.animState = actor.status; 
+        target.animState = target.status;
+    }, 400);
+
+    await new Promise(r => setTimeout(r, 600)); 
+    return resultString;
+}
+
+function resolveEndTurn(isPlayer, actor) {
+    const name = isPlayer ? "玩家" : gameState.cpuIdentity.name;
+    if (actor.status === 'charging') {
+        if (actor.energy < CONFIG.MAX_ENERGY) {
+            actor.energy++;
+            log(`${name} 蓄力完成！能量 +1`, "log-info");
+            addFloatingText(actor, "+1 能量", "#f1c40f");
+        }
+    }
+    actor.status = 'idle';
+    actor.animState = 'idle';
+}
+
+function checkGameOver() {
+    if (gameState.player.hp <= 0 || gameState.cpu.hp <= 0) {
+        gameState.phase = 'game_over';
+        let winner = gameState.player.hp > 0 ? "玩家" : gameState.cpuIdentity.name;
+        turnEl.innerText = `${winner} 獲勝！`;
+        log(`遊戲結束！ ${winner} 獲勝`, "log-dmg");
+        updateUI();
+        
+        restartBtn.classList.add('show');
+        coachBtn.disabled = true;
+        rivalBtn.disabled = true;
+        
+        // Final Taunt
+        const prompt = `
+            遊戲結束。${winner}獲勝。
+            我是${gameState.cpuIdentity.name}，性格${gameState.cpuIdentity.personality}。
+            如果我輸了，講一句不甘心的話。如果我贏了，講一句勝利感言。
+        `;
+        callGemini(prompt).then(res => {
+            if(res) showTaunt(res);
+        });
+
+        // Final Commentary
+        const commPrompt = `比賽結束！${winner}獲得了勝利！請為這場精彩的拳擊賽做一句結尾講評。`;
+        generateCommentary(commPrompt);
+
+        return true;
+    }
+    return false;
+}
+
+function log(msg, cls) {
+    const div = document.createElement('div');
+    div.innerText = msg;
+    if (cls) div.className = cls;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function addFloatingText(target, text, color) {
+    let x = (target === gameState.player) ? 200 : 600;
+    let y = 200;
+    
+    floatingTexts.push({
+        x: x, y: y, text: text, color: color, life: 60, vy: -1
+    });
+}
+
+function updateUI() {
+    const p = gameState.player;
+    const isTurn = gameState.phase === 'player_input';
+
+    document.getElementById('btn-charge').disabled = !isTurn;
+    document.getElementById('btn-def').disabled = !isTurn;
+    document.getElementById('btn-sdef').disabled = !isTurn;
+    
+    const atkBtns = ['btn-atk', 'btn-sk1', 'btn-sk2', 'btn-sk3'];
+    atkBtns.forEach(id => {
+        let btn = document.getElementById(id);
+        btn.disabled = !isTurn;
+        if (id === 'btn-sk1' && p.energy < 1) btn.disabled = true;
+        if (id === 'btn-sk2' && p.energy < 2) btn.disabled = true;
+        if (id === 'btn-sk3' && p.energy < 3) btn.disabled = true;
+    });
+}
+
+/**
+ * Rendering Loop
+ */
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Floor
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 350, 800, 50);
+
+    drawFighter(true, gameState.player);
+    drawFighter(false, gameState.cpu);
+    drawHUD();
+    drawFloating();
+
+    requestAnimationFrame(draw);
+}
+
+function drawFighter(isPlayer, data) {
+    ctx.save();
+    let x = isPlayer ? 200 : 600;
+    let y = 280;
+    let color = isPlayer ? '#3498db' : '#e74c3c';
+    
+    let state = data.animState || data.status;
+
+    if (state === 'hit') {
+        x += (Math.random() - 0.5) * 10;
+        y += (Math.random() - 0.5) * 10;
+        color = '#fff'; 
+    }
+
+    if (state === 'attacking') {
+        x += isPlayer ? 50 : -50;
+    }
+
+    if (!isPlayer) {
+        ctx.translate(x, y);
+        ctx.scale(-1, 1);
+        ctx.translate(-x, -y);
+    }
+
+    // Body
+    ctx.fillStyle = color;
+    if (state === 'charging') ctx.fillStyle = '#f1c40f'; 
+    ctx.fillRect(x - 20, y - 60, 40, 80);
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(x, y - 80, 25, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Icons
+    if (state === 'charging') {
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "#f1c40f";
+        ctx.fillText("⚡", x - 10, y - 120);
+    }
+    if (state === 'blocking') {
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "#3498db";
+        ctx.fillText("🛡️", x - 10, y - 120);
+    }
+    if (state === 'superBlocking') {
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "#8e44ad";
+        ctx.fillText("🔰", x - 10, y - 120);
+    }
+
+    // Arms
+    ctx.fillStyle = isPlayer ? '#e67e22' : '#c0392b';
+    
+    if (['blocking', 'superBlocking'].includes(state)) {
+        ctx.fillRect(x + 10, y - 70, 20, 60);
+    } else if (state === 'attacking') {
+        ctx.beginPath();
+        ctx.arc(x + 60, y - 50, 20, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 50);
+        ctx.lineTo(x + 60, y - 50);
+        ctx.stroke();
+    } else {
+        ctx.beginPath();
+        ctx.arc(x + 25, y - 40, 15, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    // Legs
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(x - 10, y + 20);
+    ctx.lineTo(x - 20, y + 70);
+    ctx.moveTo(x + 10, y + 20);
+    ctx.lineTo(x + 20, y + 70);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawHUD() {
+    drawBar(20, 20, 250, 20, gameState.player.hp, CONFIG.MAX_HP, '#3498db');
+    drawEnergy(20, 50, gameState.player.energy);
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px Arial';
+    ctx.fillText(`HP: ${gameState.player.hp}`, 20, 40);
+
+    drawBar(530, 20, 250, 20, gameState.cpu.hp, CONFIG.MAX_HP, '#e74c3c');
+    drawEnergy(530, 50, gameState.cpu.energy);
+    ctx.fillText(`${gameState.cpuIdentity.name}: ${gameState.cpu.hp}`, 530, 40);
+}
+
+function drawBar(x, y, w, h, val, max, color) {
+    ctx.fillStyle = '#333';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, (val/max)*w, h);
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(x, y, w, h);
+}
+
+function drawEnergy(x, y, val) {
+    for(let i=0; i<3; i++) {
+        ctx.beginPath();
+        ctx.arc(x + 15 + i*30, y, 10, 0, Math.PI*2);
+        if (i < val) {
+            ctx.fillStyle = '#f1c40f';
+            ctx.fill();
+        } else {
+            ctx.strokeStyle = '#666';
+            ctx.stroke();
+        }
+    }
+}
+
+function drawFloating() {
+    for(let i=floatingTexts.length-1; i>=0; i--) {
+        let f = floatingTexts[i];
+        ctx.fillStyle = f.color;
+        ctx.font = "bold 20px Arial";
+        ctx.fillText(f.text, f.x, f.y);
+        f.y += f.vy;
+        f.life--;
+        if(f.life <= 0) floatingTexts.splice(i, 1);
+    }
+}
+
+// Start
+requestAnimationFrame(draw);
+updateUI();
+</script>
+</body>
+</html>
