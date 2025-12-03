@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk Boxing: Ultimate Edition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050510;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: "Microsoft JhengHei", "Heiti TC", sans-serif;
+            color: white;
+            user-select: none;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+        }
+        canvas {
+            background-color: #10101a;
+            border: 2px solid #0ff;
+            display: block;
+        }
+        
+        /* UI 系統 */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .hidden { display: none !important; }
+
+        h1 {
+            color: #0ff;
+            font-size: 48px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px #0ff;
+            text-align: center;
+        }
+        h2 { color: #fff; font-size: 24px; margin-bottom: 30px; font-weight: normal; }
+
+        .btn-menu {
+            background: linear-gradient(45deg, #0ff, #0088ff);
+            border: 2px solid #fff;
+            color: #000;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px;
+            cursor: pointer;
+            width: 250px;
+            transition: 0.2s;
+            clip-path: polygon(10% 0, 100% 0, 100% 90%, 90% 100%, 0 100%, 0 10%);
+        }
+        .btn-menu:hover {
+            transform: scale(1.05);
+            background: linear-gradient(45deg, #fff, #0ff);
+            box-shadow: 0 0 20px #0ff;
+        }
+        .btn-secondary {
+            background: transparent;
+            border: 2px solid #555;
+            color: #aaa;
+        }
+        .btn-secondary:hover {
+            border-color: #fff;
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+
+        /* 多人連線 UI */
+        .input-code {
+            padding: 10px;
+            font-size: 24px;
+            text-align: center;
+            width: 150px;
+            background: #222;
+            border: 1px solid #0ff;
+            color: #fff;
+            margin: 10px;
+            text-transform: uppercase;
+        }
+        .room-code-display {
+            font-size: 60px;
+            color: #ffe600;
+            letter-spacing: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+            text-shadow: 0 0 20px #ffe600;
+        }
+
+        /* 頂部狀態列 */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 100;
+        }
+        .top-btn {
+            pointer-events: auto;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #0ff;
+            color: #0ff;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        #status-text {
+            background: rgba(0,0,0,0.7);
+            padding: 5px 15px;
+            border-radius: 20px;
+            border: 1px solid #555;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div class="top-bar">
+        <div id="status-text">單人模式</div>
+        <div style="display:flex; gap:10px;">
+            <button id="btn-music" class="top-btn">🎵 音樂: 開</button>
+            <button id="btn-sfx" class="top-btn">🔊 音效: 開</button>
+            <button id="btn-home" class="top-btn hidden" onclick="location.reload()">🏠 回首頁</button>
+        </div>
+    </div>
+
+    <!-- 主選單 -->
+    <div id="ui-main-menu" class="ui-layer">
+        <h1>CYBERPUNK BOXING</h1>
+        <h2>NEON STRIKE ARENA</h2>
+        <button class="btn-menu" onclick="startGame('single')">單人闖關</button>
+        <button class="btn-menu" onclick="showLobby()">多人連線</button>
+        <div style="margin-top:20px; color:#666; font-size:12px;">v3.6 Fixed Permissions</div>
+    </div>
+
+    <!-- 多人連線大廳 -->
+    <div id="ui-lobby" class="ui-layer hidden">
+        <h1>連線大廳</h1>
+        <div id="lobby-start">
+            <button class="btn-menu" onclick="createRoom()">建立房間</button>
+            <div style="margin: 10px; color:#aaa;">- 或 -</div>
+            <input type="text" id="room-input" class="input-code" placeholder="代碼" maxlength="4">
+            <button class="btn-menu" style="width: auto;" onclick="joinRoom()">加入</button>
+            <br><br>
+            <button class="btn-menu btn-secondary" onclick="backToMenu()">返回</button>
+        </div>
+        
+        <div id="lobby-waiting" class="hidden" style="text-align: center;">
+            <h2>等待對手加入...</h2>
+            <p>請將此代碼分享給朋友</p>
+            <div id="display-code" class="room-code-display">----</div>
+            <div class="loader" style="color:#0ff">正在連線至伺服器...</div>
+            <br>
+            <button class="btn-menu btn-secondary" onclick="location.reload()">取消</button>
+        </div>
+    </div>
+
+    <!-- 遊戲結束畫面 (共用) -->
+    <div id="ui-gameover" class="ui-layer hidden" style="background: rgba(0,0,0,0.6);">
+        <h1 id="winner-text" style="font-size: 80px;">YOU WIN</h1>
+        <button class="btn-menu" onclick="restartMatch()">再來一局</button>
+        <button class="btn-menu btn-secondary" onclick="location.reload()">回主選單</button>
+    </div>
+
+    <canvas id="gameCanvas" width="900" height="600"></canvas>
+</div>
+
+<!-- Firebase Logic Module -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = JSON.parse(__firebase_config);
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    let currentUser = null;
+    let currentRoomId = null;
+    let myRole = null; // 'p1' or 'p2'
+
+    // --- 修正後的驗證邏輯 ---
+    const initAuth = async () => {
+        try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                console.log("使用自訂 Token 登入中...");
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                console.log("使用匿名登入中...");
+                await signInAnonymously(auth);
+            }
+        } catch (error) {
+            console.error("登入失敗:", error);
+            alert("無法連接伺服器，請重新整理頁面。");
+        }
+    };
+    initAuth();
+
+    onAuthStateChanged(auth, user => {
+        if(user) {
+            console.log("已登入 User ID:", user.uid);
+            currentUser = user;
+        }
+    });
+
+    // Expose functions to window
+    window.createRoom = async () => {
+        if (!currentUser) return alert("伺服器連線中，請稍後再試...");
+        const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+        currentRoomId = code;
+        myRole = 'p1';
+
+        // UI Update
+        document.getElementById('lobby-start').classList.add('hidden');
+        document.getElementById('lobby-waiting').classList.remove('hidden');
+        document.getElementById('display-code').innerText = code;
+        
+        // Setup DB - 使用 rooms 集合層級
+        try {
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', 'room_' + code);
+            await setDoc(roomRef, {
+                status: 'waiting',
+                p1: currentUser.uid,
+                p2: null,
+                p1_act: null, p2_act: null,
+                p1_hp: 100, p1_en: 0,
+                p2_hp: 100, p2_en: 0,
+                ts: Date.now()
+            });
+            setupListener(code);
+        } catch (e) {
+            console.error("建立房間失敗:", e);
+            alert("建立房間失敗，權限不足或網路錯誤。");
+        }
+    };
+
+    window.joinRoom = async () => {
+        if (!currentUser) return alert("伺服器連線中...");
+        const code = document.getElementById('room-input').value.toUpperCase();
+        if (code.length !== 4) return alert("請輸入4位代碼");
+
+        try {
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', 'room_' + code);
+            const snap = await getDoc(roomRef);
+            
+            if (!snap.exists()) return alert("房間不存在");
+            if (snap.data().p2) return alert("房間已滿");
+
+            await updateDoc(roomRef, { p2: currentUser.uid, status: 'playing' });
+            
+            currentRoomId = code;
+            myRole = 'p2';
+            startGame('multi');
+            setupListener(code);
+        } catch (e) {
+            console.error("加入房間失敗:", e);
+            alert("加入失敗，請檢查代碼或網路。");
+        }
+    };
+
+    function setupListener(code) {
+        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', 'room_' + code);
+        onSnapshot(roomRef, (doc) => {
+            if (!doc.exists()) return;
+            const data = doc.data();
+            window.handleMultiplayerUpdate(data, myRole);
+        });
+    }
+
+    window.sendMultiAction = async (action) => {
+        if (!currentRoomId || !myRole) return;
+        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', 'room_' + currentRoomId);
+        const update = {};
+        update[myRole + '_act'] = action;
+        await updateDoc(roomRef, update);
+    };
+
+    // Host updates the game state after resolution
+    window.syncGameState = async (p1Hp, p1En, p2Hp, p2En) => {
+        if (myRole !== 'p1') return; // Only host writes state
+        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', 'room_' + currentRoomId);
+        await updateDoc(roomRef, {
+            p1_act: null, p2_act: null, // Reset actions
+            p1_hp: p1Hp, p1_en: p1En,
+            p2_hp: p2Hp, p2_en: p2En,
+            ts: Date.now()
+        });
+    };
+    
+    // Reset match
+    window.resetMultiMatch = async () => {
+         if (myRole !== 'p1') return;
+         const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', 'room_' + currentRoomId);
+         await updateDoc(roomRef, {
+            p1_hp: 100, p1_en: 0,
+            p2_hp: 100, p2_en: 0,
+            p1_act: null, p2_act: null,
+            status: 'playing',
+            ts: Date.now()
+         });
+    }
+</script>
+
+<script>
+// --- 音訊系統 (保持不變) ---
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+let isMusicOn = true, isSfxOn = true;
+
+function initAudio() {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+const SFX = {
+    play: (freq, type, dur, vol=0.1) => {
+        if (!isSfxOn || !audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + dur);
+    },
+    click: () => SFX.play(800, 'square', 0.1, 0.05),
+    hit: () => SFX.play(100, 'sawtooth', 0.3, 0.2),
+    heavy: () => SFX.play(60, 'square', 0.5, 0.3),
+    block: () => SFX.play(1200, 'triangle', 0.2, 0.1),
+    sBlock: () => SFX.play(200, 'sawtooth', 0.5, 0.2),
+    charge: () => {
+        if(!isSfxOn||!audioCtx)return;
+        const osc=audioCtx.createOscillator();const g=audioCtx.createGain();
+        osc.frequency.setValueAtTime(200,audioCtx.currentTime);osc.frequency.linearRampToValueAtTime(600,audioCtx.currentTime+0.3);
+        g.gain.setValueAtTime(0.1,audioCtx.currentTime);g.gain.linearRampToValueAtTime(0,audioCtx.currentTime+0.3);
+        osc.connect(g);g.connect(audioCtx.destination);osc.start();osc.stop(audioCtx.currentTime+0.3);
+    },
+    win: () => { if(isSfxOn&&audioCtx) [400,500,600,800].forEach((f,i)=>setTimeout(()=>SFX.play(f,'square',0.2,0.1),i*150)); },
+    lose: () => { if(isSfxOn&&audioCtx) [300,250,200,100].forEach((f,i)=>setTimeout(()=>SFX.play(f,'sawtooth',0.4,0.1),i*200)); }
+};
+
+const Music = {
+    isPlaying: false, timer: null, nextTime: 0, step: 0,
+    start: function(){ if(this.isPlaying||!isMusicOn)return; initAudio(); this.isPlaying=true; this.nextTime=audioCtx.currentTime+0.1; this.step=0; this.sch(); },
+    stop: function(){ this.isPlaying=false; clearTimeout(this.timer); },
+    sch: function(){ if(!this.isPlaying)return; while(this.nextTime<audioCtx.currentTime+0.1){ this.play(this.nextTime,this.step); this.nextTime+=0.136; this.step=(this.step+1)%16; } this.timer=setTimeout(()=>this.sch(),25); },
+    play: function(t,s){
+        if(!isMusicOn)return;
+        if(s%2===0){ let f=73.4; if(s>=8&&s<12)f=87.3; if(s>=12)f=98; this.bass(t,f); }
+        if(s%4===0) this.kick(t); if(s===4||s===12) this.snare(t); if(s%2===0) this.hat(t,s%4===2);
+    },
+    kick: t=>{const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.freq(150,t);o.exp(0.01,t+0.5);g.vol(0.8,t);g.exp(0.01,t+0.5);o.con(g);g.con(audioCtx.destination);o.start(t);o.stop(t+0.5);},
+    snare: t=>{const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='triangle';o.freq(250,t);g.vol(0.3,t);g.exp(0.01,t+0.1);o.con(g);g.con(audioCtx.destination);o.start(t);o.stop(t+0.2);},
+    hat: (t,o)=>{const os=audioCtx.createOscillator(),g=audioCtx.createGain();os.type='square';os.freq(8000,t);g.vol(0.05,t);g.exp(0.001,t+(o?0.1:0.05));os.con(g);g.con(audioCtx.destination);os.start(t);os.stop(t+0.1);},
+    bass: (t,f)=>{const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sawtooth';o.freq(f,t);g.vol(0.3,t);g.lin(0,t+0.2);o.con(g);g.con(audioCtx.destination);o.start(t);o.stop(t+0.25);}
+};
+// Helper for Audio shortcuts
+AudioParam.prototype.freq=AudioParam.prototype.setValueAtTime;
+AudioParam.prototype.exp=AudioParam.prototype.exponentialRampToValueAtTime;
+AudioParam.prototype.vol=AudioParam.prototype.setValueAtTime;
+AudioParam.prototype.lin=AudioParam.prototype.linearRampToValueAtTime;
+AudioNode.prototype.con=AudioNode.prototype.connect;
+
+// --- 遊戲邏輯 ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const COLORS = { BLUE:'#00FFFF', RED:'#FF3250', YELLOW:'#FFE600', PURPLE:'#B400FF', GREEN:'#32FF32', WHITE:'#FFFFFF', BLACK:'#000000', GRAY:'#646464', ORANGE:'#FFA500', BG:'#0F0F19' };
+const MAX_HP=100, MAX_EN=8;
+const DAMAGE = { attack:10, skill1:20, skill2:35, skill3:60 };
+
+let gameMode = 'none'; // 'single' or 'multi'
+let screenShake = 0, particles = [], floatingTexts = [], mousePos = {x:0,y:0};
+let p1Action = null, p2Action = null;
+let logMsg = "";
+const STATE = { INPUT:0, ANIM:1, RESOLVE:2, GAMEOVER:3 };
+let curState = STATE.INPUT;
+let animTimer = 0;
+
+// Classes
+class Particle {
+    constructor(x,y,c){this.x=x;this.y=y;this.vx=(Math.random()-0.5)*15;this.vy=(Math.random()-0.5)*15;this.life=30+Math.random()*20;this.c=c;this.s=3+Math.random()*4;}
+    up(){this.x+=this.vx;this.y+=this.vy;this.life--;this.s=Math.max(0,this.s-0.1);}
+    draw(ox,oy){if(this.life>0){ctx.fillStyle=this.c;ctx.beginPath();ctx.arc(this.x+ox,this.y+oy,this.s,0,Math.PI*2);ctx.fill();}}
+}
+class FloatText {
+    constructor(t,x,y,c,s=1){this.t=t;this.x=x;this.y=y;this.vy=-2;this.life=80;this.c=c;this.s=s;}
+    up(){this.y+=this.vy;this.vy*=0.95;this.life--;}
+    draw(ox,oy){if(this.life>0){ctx.globalAlpha=Math.min(1,this.life/20);ctx.font=`bold ${24*this.s}px "Microsoft JhengHei"`;ctx.fillStyle=this.c;ctx.strokeStyle="#000";ctx.lineWidth=3;ctx.strokeText(this.t,this.x+ox,this.y+oy);ctx.fillText(this.t,this.x+ox,this.y+oy);ctx.globalAlpha=1;}}
+}
+class Fighter {
+    constructor(isP1){this.isP1=isP1;this.reset();}
+    reset(){this.hp=MAX_HP;this.en=0;this.state="idle";this.x=this.isP1?250:650;this.y=350;this.shake=0;this.flash=0;}
+    hit(amt){this.hp-=amt;this.flash=5;this.shake=20;spawnParts(this.x,this.y-80,this.isP1?COLORS.BLUE:COLORS.RED);spawnText(`-${amt}`,this.x,this.y-150,COLORS.RED,amt>20?1.5:1);if(amt>20)SFX.heavy();else SFX.hit();}
+    setState(act){if(act==="charge")this.state="charge";else if(act==="block")this.state="block";else if(act==="s_block")this.state="s_block";else if(["attack","skill1","skill2","skill3"].includes(act))this.state="attack";else this.state="idle";}
+    draw(ox,oy){
+        let dx=this.x+(Math.random()-0.5)*this.shake+ox, dy=this.y+oy, c=this.isP1?COLORS.BLUE:COLORS.RED;
+        if(this.flash>0){c=COLORS.WHITE;this.flash--;}
+        ctx.save(); ctx.translate(dx,dy); if(!this.isP1)ctx.scale(-1,1);
+        ctx.strokeStyle=c; ctx.lineWidth=4; ctx.lineCap="round"; ctx.lineJoin="round";
+        const b=Math.sin(Date.now()/300)*2;
+        // Draw Stickman
+        ctx.beginPath();
+        if(this.state==="charge"){ctx.moveTo(-20,0);ctx.lineTo(-10,-40);ctx.lineTo(0,-60);ctx.lineTo(10,-40);ctx.lineTo(20,0); ctx.moveTo(0,-60);ctx.lineTo(10,-110); ctx.moveTo(10,-100);ctx.lineTo(30,-90);ctx.lineTo(10,-70);}
+        else {ctx.moveTo(-20,0);ctx.lineTo(-10,-50);ctx.lineTo(0,-80+b);ctx.lineTo(10,-50);ctx.lineTo(20,0); ctx.moveTo(0,-80+b);ctx.lineTo(0,-130+b); if(this.state==="attack"){ctx.moveTo(0,-120+b);ctx.lineTo(40,-120+b);ctx.lineTo(80,-120+b);}else if(this.state.includes("block")){ctx.moveTo(0,-120+b);ctx.lineTo(20,-110+b);ctx.lineTo(20,-140+b);}else{ctx.moveTo(0,-120+b);ctx.lineTo(15,-100+b);ctx.lineTo(25,-125+b);}}
+        ctx.stroke();
+        // Head
+        ctx.beginPath(); let hx=0,hy=-145+b; if(this.state==="charge"){hx=15;hy=-125;} if(this.state==="attack"){hx=25;hy=-145+b;}
+        ctx.arc(hx,hy,12,0,Math.PI*2); ctx.stroke(); ctx.fillStyle=COLORS.WHITE; ctx.beginPath(); ctx.arc(hx+6,hy-2,2,0,Math.PI*2); ctx.fill();
+        // VFX
+        if(this.state==="attack"){ctx.shadowBlur=20;ctx.shadowColor=c;ctx.fillStyle=COLORS.WHITE;ctx.beginPath();ctx.arc(85,-120+b,8,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;}
+        if(this.state==="block"){ctx.fillStyle="rgba(0,255,255,0.3)";ctx.strokeStyle=COLORS.BLUE;ctx.lineWidth=2;ctx.fillRect(40,-160,10,160);ctx.strokeRect(40,-160,10,160);}
+        else if(this.state==="s_block"){ctx.fillStyle="rgba(180,0,255,0.2)";ctx.strokeStyle=COLORS.PURPLE;ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,-80,100,0,Math.PI*2);ctx.fill();ctx.stroke();}
+        else if(this.state==="charge"){ctx.strokeStyle=COLORS.YELLOW;ctx.lineWidth=2;ctx.beginPath();ctx.arc(10,-70,60,0,Math.PI*2);ctx.stroke();ctx.fillStyle="rgba(255,230,0,0.5)";ctx.beginPath();ctx.ellipse(0,0,40,10,0,0,Math.PI*2);ctx.fill();}
+        ctx.restore(); if(this.shake>0)this.shake*=0.8;
+    }
+}
+class Btn {
+    constructor(t,x,y,c,a,cost=0){this.t=t;this.r={x,y,w:100,h:50};this.c=c;this.a=a;this.cost=cost;}
+    draw(en, enable){
+        const dis=en<this.cost || !enable; const col=dis?COLORS.GRAY:this.c;
+        if(!dis&&this.hover(mousePos)){ctx.fillStyle="#fff";ctx.fillRect(this.r.x-3,this.r.y-3,this.r.w+6,this.r.h+6);}
+        ctx.fillStyle=col;ctx.fillRect(this.r.x,this.r.y,this.r.w,this.r.h);
+        ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.strokeRect(this.r.x,this.r.y,this.r.w,this.r.h);
+        ctx.fillStyle=dis?"#fff":"#000";ctx.font=this.t.length>3?"bold 16px Arial":"bold 18px Arial";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(this.t,this.r.x+this.r.w/2,this.r.y+this.r.h/2);
+        if(this.cost>0){ctx.fillStyle="#fff";ctx.font="14px Arial";ctx.fillText(`氣${this.cost}`,this.r.x+this.r.w-20,this.r.y+this.r.h+15);}
+    }
+    hover(p){return p.x>=this.r.x&&p.x<=this.r.x+this.r.w&&p.y>=this.r.y&&p.y<=this.r.y+this.r.h;}
+}
+
+const p1 = new Fighter(true);
+const p2 = new Fighter(false);
+const btns = [
+    new Btn("集氣",40,510,COLORS.YELLOW,"charge"), new Btn("防禦",150,510,COLORS.BLUE,"block"), new Btn("超級防守",260,510,COLORS.PURPLE,"s_block"),
+    new Btn("機械刺拳",370,510,COLORS.RED,"attack"), new Btn("音速衝擊",480,510,COLORS.ORANGE,"skill1",1), new Btn("雷霆重擊",590,510,'#FF6400',"skill2",2), new Btn("終極崩壞",700,510,'#FF0000',"skill3",3)
+];
+
+function spawnParts(x,y,c){for(let i=0;i<15;i++)particles.push(new Particle(x,y,c));}
+function spawnText(t,x,y,c,s=1){floatingTexts.push(new FloatText(t,x,y,c,s));}
+
+// --- Menu Functions ---
+function showLobby() { document.getElementById('ui-main-menu').classList.add('hidden'); document.getElementById('ui-lobby').classList.remove('hidden'); }
+function backToMenu() { document.getElementById('ui-lobby').classList.add('hidden'); document.getElementById('ui-main-menu').classList.remove('hidden'); }
+function startGame(mode) {
+    initAudio(); Music.start(); SFX.click();
+    gameMode = mode;
+    p1.reset(); p2.reset();
+    particles=[]; floatingTexts=[];
+    curState = STATE.INPUT;
+    
+    // Hide all UIs
+    document.querySelectorAll('.ui-layer').forEach(el => el.classList.add('hidden'));
+    document.getElementById('btn-home').classList.remove('hidden');
+
+    if (mode === 'single') {
+        logMsg = "單人模式：請選擇行動";
+        document.getElementById('status-text').innerText = "單人闖關";
+    } else {
+        logMsg = "連線成功！等待雙方行動";
+        document.getElementById('status-text').innerText = "多人對戰 (Room: " + (window.currentRoomId || "Demo") + ")";
+    }
+}
+function restartMatch() {
+    document.getElementById('ui-gameover').classList.add('hidden');
+    if(gameMode === 'multi' && window.resetMultiMatch) {
+        window.resetMultiMatch();
+    } else {
+        p1.reset(); p2.reset(); curState = STATE.INPUT; logMsg = "新回合開始";
+    }
+}
+
+// --- Multiplayer Callback ---
+window.handleMultiplayerUpdate = (data, myRole) => {
+    // Sync Waiting Screen
+    if (data.status === 'waiting') {
+        // Still in lobby UI
+        return;
+    }
+    // Start Game Transition
+    if (data.status === 'playing' && document.getElementById('ui-lobby').classList.contains('hidden') === false) {
+        startGame('multi');
+    }
+
+    // Sync Stats
+    p1.hp = data.p1_hp; p1.en = data.p1_en;
+    p2.hp = data.p2_hp; p2.en = data.p2_en;
+
+    // Determine State
+    const myAct = myRole==='p1'?data.p1_act:data.p2_act;
+    const opAct = myRole==='p1'?data.p2_act:data.p1_act;
+
+    if (data.p1_act && data.p2_act) {
+        // Both Ready -> Resolve
+        if (curState === STATE.INPUT) {
+            p1Action = data.p1_act; p2Action = data.p2_act;
+            p1.setState(p1Action); p2.setState(p2Action);
+            curState = STATE.ANIM; animTimer = 0;
+            logMsg = "雙方交鋒！";
+        }
+    } else {
+        // Back to Input
+        if (curState !== STATE.ANIM && curState !== STATE.RESOLVE && curState !== STATE.GAMEOVER) {
+            curState = STATE.INPUT;
+            if (!myAct) logMsg = "你的回合：請選擇行動";
+            else logMsg = "已鎖定，等待對手...";
+        }
+    }
+};
+
+// --- Main Game Loop ---
+function loop() {
+    ctx.fillStyle=COLORS.BG; ctx.fillRect(0,0,900,600);
+    let ox=0,oy=0; if(screenShake>0){ox=(Math.random()-0.5)*screenShake*2;oy=(Math.random()-0.5)*screenShake*2;screenShake=Math.max(0,screenShake-1);}
+    
+    // Grid
+    ctx.strokeStyle='#28003C';ctx.lineWidth=1;for(let x=-100;x<1000;x+=50){ctx.beginPath();ctx.moveTo(x+ox*0.5,400+oy);ctx.lineTo(x-300+(x/900)*600+ox,600+oy);ctx.stroke();}
+    ctx.strokeStyle='#C800C8';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,400+oy);ctx.lineTo(900,400+oy);ctx.stroke();
+
+    p1.draw(ox,oy); p2.draw(ox,oy);
+    particles.forEach((p,i)=>{p.up();p.draw(ox,oy);if(p.life<=0)particles.splice(i,1);});
+    floatingTexts.forEach((t,i)=>{t.up();t.draw(ox,oy);if(t.life<=0)floatingTexts.splice(i,1);});
+
+    // Draw UI Overlay for Input
+    if (curState === STATE.INPUT) {
+        ctx.fillStyle="#14141E"; ctx.fillRect(0,490,900,110);
+        ctx.strokeStyle=COLORS.BLUE; ctx.lineWidth=2; ctx.strokeRect(0,490,900,110);
+        
+        // Multiplayer Logic for Buttons
+        let showButtons = true;
+        let myEn = p1.en;
+        
+        if (gameMode === 'multi') {
+            // Check if I am P1 or P2 to show correct energy
+            // If I am P2, I use p2.en, but buttons show "My Energy"
+            // Wait, buttons visualize p1.en? No we need to pass MY energy.
+            // window.myRole is global from module
+            // Quick access hack:
+            const role = window.myRole || 'p1'; // default single player
+            myEn = (role === 'p1') ? p1.en : p2.en;
+            
+            // If I already acted, disable buttons visually
+            if (logMsg.includes("等待對手")) showButtons = false;
+        }
+
+        btns.forEach(b => b.draw(myEn, showButtons));
+    }
+
+    // Logic Steps
+    if (curState === STATE.ANIM) {
+        animTimer++;
+        if (animTimer > 30) {
+            resolve();
+            curState = STATE.RESOLVE; animTimer = 0;
+        }
+    } else if (curState === STATE.RESOLVE) {
+        animTimer++;
+        if (animTimer > 60) {
+            p1.setState("idle"); p2.setState("idle");
+            
+            // Check Win
+            if(p1.hp<=0 || p2.hp<=0) {
+                curState = STATE.GAMEOVER;
+                let txt = "DRAW";
+                if(p1.hp>0) { txt = gameMode==='single'?"YOU WIN":"P1 WINS"; SFX.win(); }
+                else if(p2.hp>0) { txt = gameMode==='single'?"YOU LOSE":"P2 WINS"; SFX.lose(); }
+                document.getElementById('winner-text').innerText = txt;
+                document.getElementById('ui-gameover').classList.remove('hidden');
+                
+                // If Host, reset DB state for next match eventually? 
+                // Currently just stop.
+            } else {
+                curState = STATE.INPUT;
+                logMsg = "下一回合";
+                // If Multi Host, sync DB to clean slate
+                if(gameMode === 'multi' && window.syncGameState) {
+                    window.syncGameState(p1.hp, p1.en, p2.hp, p2.en);
+                }
+            }
+        }
+    }
+
+    // Draw Bars
+    drawBar(20,40,p1.hp,MAX_HP,p1.en,COLORS.BLUE,"P1");
+    drawBar(660,40,p2.hp,MAX_HP,p2.en,COLORS.RED,"P2");
+    
+    // Log
+    ctx.fillStyle=COLORS.WHITE; ctx.font="bold 24px Arial"; ctx.textAlign="center"; ctx.fillText(logMsg,450,80);
+
+    requestAnimationFrame(loop);
+}
+
+function resolve() {
+    // Damage Calc
+    let d1=0, d2=0;
+    // P1 attacks P2
+    if(["attack","skill1","skill2","skill3"].includes(p1Action)){
+        let b=DAMAGE[p1Action];
+        let blk=false;
+        if(p1Action==="skill3"){ if(p2Action==="s_block")blk=true; } else { if(p2Action==="block")blk=true; }
+        if(!blk){ p2.hit(b); } else { spawnText(p2Action==="s_block"?"完美防禦":"格擋",p2.x,p2.y-120,COLORS.BLUE); if(p2Action==="s_block")SFX.sBlock(); else SFX.block(); }
+    }
+    // P2 attacks P1
+    if(["attack","skill1","skill2","skill3"].includes(p2Action)){
+        let b=DAMAGE[p2Action];
+        let blk=false;
+        if(p2Action==="skill3"){ if(p1Action==="s_block")blk=true; } else { if(p1Action==="block")blk=true; }
+        if(!blk){ p1.hit(b); } else { spawnText(p1Action==="s_block"?"完美防禦":"格擋",p1.x,p1.y-120,COLORS.BLUE); if(p1Action==="s_block")SFX.sBlock(); else SFX.block(); }
+    }
+    // Charge
+    if(p1Action==="charge"&&p1.hp>0){
+        let int=["skill1","skill2","skill3"].includes(p2Action);
+        if(int)spawnText("打斷!",p1.x,p1.y-100,COLORS.GRAY);
+        else{
+            if(p2Action==="attack")spawnText("硬扛!",p1.x,p1.y-100,COLORS.ORANGE);
+            p1.en=Math.min(8,p1.en+1); spawnText("+1氣",p1.x,p1.y-120,COLORS.YELLOW); SFX.charge();
+        }
+    }
+    if(p2Action==="charge"&&p2.hp>0){
+        let int=["skill1","skill2","skill3"].includes(p1Action);
+        if(int)spawnText("打斷!",p2.x,p2.y-100,COLORS.GRAY);
+        else{
+            if(p1Action==="attack")spawnText("硬扛!",p2.x,p2.y-100,COLORS.ORANGE);
+            p2.en=Math.min(8,p2.en+1); spawnText("+1氣",p2.x,p2.y-120,COLORS.YELLOW); SFX.charge();
+        }
+    }
+}
+
+function drawBar(x,y,h,mh,en,c,n){
+    ctx.fillStyle=c;ctx.font="bold 20px Arial";ctx.textAlign="left";ctx.fillText(n,x,y-10);
+    ctx.fillStyle="#333";ctx.fillRect(x,y,220,25);
+    if(h>0){ctx.fillStyle=c;ctx.fillRect(x,y,220*(h/mh),25);}
+    ctx.strokeStyle="#fff";ctx.strokeRect(x,y,220,25);
+    ctx.fillStyle="#fff";ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText(`${Math.floor(h)}/${mh}`,x+110,y+18);
+    for(let i=0;i<8;i++){ctx.fillStyle=i<en?COLORS.YELLOW:"#444";ctx.beginPath();ctx.arc(x+15+i*27,y+45,8,0,Math.PI*2);ctx.fill();ctx.stroke();}
+}
+
+// Input Handling
+canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect();mousePos={x:e.clientX-r.left,y:e.clientY-r.top};});
+canvas.addEventListener('mousedown',e=>{
+    if(curState!==STATE.INPUT) return;
+    
+    // Check which buttons available
+    const role = window.myRole || 'p1';
+    const myEn = (role==='p1')?p1.en:p2.en;
+    
+    // If Multiplayer and already acted, block
+    if(gameMode==='multi' && logMsg.includes("等待")) return;
+
+    for(let b of btns){
+        if(b.checkClick(mousePos, myEn)){
+            SFX.click();
+            
+            if(gameMode === 'single') {
+                p1Action = b.a;
+                // AI Logic
+                let aiOpts = ["attack","block"];
+                if(p2.en>=1)aiOpts.push("skill1");if(p2.en>=2)aiOpts.push("skill2");if(p2.en>=3)aiOpts.push("skill3");if(p2.en==0)aiOpts.push("charge");
+                p2Action = null;
+                if(p2.hp<30&&p2.en<2&&Math.random()<0.6)p2Action="block";
+                if(!p2Action&&p1.en>=3&&Math.random()<0.35)p2Action="s_block";
+                if(!p2Action&&p2.en>=3&&Math.random()<0.65)p2Action="skill3";
+                if(!p2Action&&Math.random()<0.25)p2Action="charge";
+                if(!p2Action) p2Action = aiOpts[Math.floor(Math.random()*aiOpts.length)];
+                
+                // Deduct cost
+                let cost=0; if(p2Action.includes("skill")) cost=parseInt(p2Action.slice(-1));
+                p2.en=Math.max(0,p2.en-cost);
+                let p1c=0; if(p1Action.includes("skill")) p1c=parseInt(p1Action.slice(-1));
+                p1.en=Math.max(0,p1.en-p1c);
+
+                p1.setState(p1Action); p2.setState(p2Action);
+                curState = STATE.ANIM; animTimer = 0;
+            
+            } else {
+                // Multiplayer: Send Action
+                if(window.sendMultiAction) window.sendMultiAction(b.a);
+                logMsg = "等待對手...";
+            }
+            break;
+        }
+    }
+});
+
+// UI Binding
+document.getElementById('btn-music').onclick=()=>{isMusicOn=!isMusicOn;document.getElementById('btn-music').innerText=isMusicOn?"🎵 音樂: 開":"🎵 音樂: 關";if(isMusicOn){initAudio();Music.start();}else Music.stop();};
+document.getElementById('btn-sfx').onclick=()=>{isSfxOn=!isSfxOn;document.getElementById('btn-sfx').innerText=isSfxOn?"🔊 音效: 開":"🔊 音效: 關";};
+
+loop();
+</script>
+</body>
+</html>
